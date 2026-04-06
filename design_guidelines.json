@@ -1,0 +1,99 @@
+{
+  "theme": "Light Theme",
+  "archetype": "Archetype 4 (Swiss & High-Contrast)",
+  "emotional_tone": "Authority, Clarity, Truth - mixed with Approachability for Education",
+  "typography": {
+    "headings": {
+      "family": "'Cabinet Grotesk', sans-serif",
+      "import_url": "https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@700,800,900&display=swap",
+      "weight": "font-bold to font-black",
+      "letter_spacing": "tracking-tighter",
+      "strategy": "Swiss Brutalist (Radical weight contrast)"
+    },
+    "body": {
+      "family": "'Satoshi', sans-serif",
+      "import_url": "https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap",
+      "weight": "font-normal",
+      "letter_spacing": "tracking-normal"
+    },
+    "mono": {
+      "family": "'JetBrains Mono', monospace",
+      "usage": "Overlines, labels, technical data, CRM card tags"
+    },
+    "scale": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl clamp() fluid scaling",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl",
+      "h3": "text-xl sm:text-2xl",
+      "h4": "text-lg sm:text-xl",
+      "body": "text-base (mobile: text-sm)",
+      "small": "text-xs tracking-[0.2em] uppercase"
+    }
+  },
+  "colors": {
+    "palette": {
+      "background": "#FFFFFF",
+      "surface": "#F8F9FA",
+      "foreground": "#0A0A0A",
+      "primary": "#002EB8",
+      "primary_hover": "#001A85",
+      "accent_warning": "#FFD600",
+      "accent_danger": "#FF2B2B",
+      "accent_success": "#00C853",
+      "muted": "#8A8F98",
+      "border": "#E5E7EB"
+    },
+    "contrast_rules": "Tinted grey. Normal text min 4.5:1, Large 3:1. Focus states higher contrast.",
+    "hover_rules": "Always explicitly set text color on hover. Lighter hue of active state."
+  },
+  "layout_spacing": {
+    "scale": "p-1, p-2, p-4, p-6, p-8, p-12, p-16, p-20, p-24, p-32",
+    "strategy": "The Control Room Grid (For Dashboards/Analytics)",
+    "grid_details": "Base Grid: grid-cols-1 md:grid-cols-3 lg:grid-cols-4. Tight gap (gap-4 or gap-6). Widget Ratios: Summary col-span-1, Primary Data col-span-2 row-span-2.",
+    "borders_and_padding": "Containers with borders must have internal padding (p-6 or p-8) to prevent text collision. Subgrid for inner items."
+  },
+  "components": {
+    "cards": "Grid Borders (The 'Technical' Look). Expose the skeleton. border-collapse style layout, border-r border-b border-border/40. No shadow for dashboard cards unless hovered.",
+    "headers": "Solid Background with hard bottom border. z-50 fixed. Never use transparent without blur.",
+    "buttons": "Flat, sharp edges. Primary color sparingly.",
+    "kanban_crm": "Swimlanes + Cards. Drag-and-drop. High contrast labels. Pastel tags for status.",
+    "charts": "Recharts. Accessible charts (color-blind-friendly palettes). Grid lines transparent.",
+    "shadcn_overrides": "Do NOT overuse generic Card. Go cardless, rectangular, dense styles. Tabs list h-auto."
+  },
+  "motion": {
+    "rules": "Micro-interactions for feedback. Hover states, Click/press states, Focus states. Respect prefers-reduced-motion.",
+    "transitions": "transition: transform 0.2s ease, opacity 0.2s ease"
+  },
+  "assets": {
+    "icons": "lucide-react",
+    "image_urls": {
+      "auth_background": {
+        "url": "https://images.unsplash.com/photo-1664273891579-22f28332f3c4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODh8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB1bml2ZXJzaXR5JTIwYnVpbGRpbmclMjBjYW1wdXN8ZW58MHx8fHwxNzc1NDYyMjY0fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Modern university building for auth page hero/background"
+      },
+      "teacher_avatars": [
+        "https://images.unsplash.com/photo-1758685734511-4f49ce9a382b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjB0ZWFjaGVyJTIwcG9ydHJhaXR8ZW58MHx8fHwxNzc1MzczODc2fDA&ixlib=rb-4.1.0&q=85",
+        "https://images.pexels.com/photos/5905753/pexels-photo-5905753.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+      ],
+      "student_avatars": [
+        "https://images.unsplash.com/photo-1707396172424-f3293f788364?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzB8MHwxfHNlYXJjaHwxfHxzdHVkZW50JTIwYXZhdGFyJTIwcG9ydHJhaXR8ZW58MHx8fHwxNzc1NDYyMjY0fDA&ixlib=rb-4.1.0&q=85",
+        "https://images.pexels.com/photos/6281951/pexels-photo-6281951.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+      ]
+    }
+  },
+  "accessibility_and_testing": {
+    "testing_attributes": "All interactive and key informational elements MUST include a `data-testid` attribute (kebab-case, role-based).",
+    "contrast": "Meet APCA/WCAG AA contrast."
+  },
+  "instructions_to_main_agent": [
+    "Include fontshare links in index.html for Cabinet Grotesk and Satoshi.",
+    "Use Cabinet Grotesk for headings and Satoshi for body. Apply them in tailwind.config.js.",
+    "Implement the Control Room Grid for the Employer Dashboard widgets.",
+    "Design Kanban with drag and drop, clean flat cards, no heavy shadows.",
+    "For the Teacher QR Attendance, use a Mobile-First layout, clean scanning UI, high contrast.",
+    "Do not use generic Shadcn Cards everywhere. Use 'Grid Borders' (The Technical Look) for data lists and panels.",
+    "Never use purely transparent headers.",
+    "Ensure 'data-testid' is present on all buttons, forms, and key interaction points.",
+    "Follow 'Grid Borders (The Technical Look)' for dashboard widgets to increase density and scanability.",
+    "Only use primary blue (#002EB8) for CTAs and critical actions. Maintain high contrast."
+  ]
+}
