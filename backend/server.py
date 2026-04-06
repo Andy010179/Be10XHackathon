@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, BeforeValidator
@@ -13,6 +14,7 @@ import jwt as pyjwt
 import bcrypt
 import uuid
 import logging
+from io import BytesIO
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 import asyncio
 import resend
@@ -117,6 +119,13 @@ def serialize_doc(doc: dict) -> dict:
         else:
             result[k] = v
     return result
+
+# --- Razorpay keys helper (DB first, fallback to env) ---
+async def get_razorpay_keys():
+    settings = await db.app_settings.find_one({"key": "razorpay"})
+    if settings and settings.get("key_id") and settings.get("key_secret"):
+        return settings["key_id"], settings["key_secret"]
+    return RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
 
 # --- Email helper (Resend) ---
 async def send_nudge_email(recipient_email: str, student_name: str, total_balance: float) -> bool:
@@ -294,6 +303,10 @@ class PersonalUpdate(BaseModel):
 
 class FeeQuery(BaseModel):
     message: str
+
+class RazorpaySettings(BaseModel):
+    key_id: str
+    key_secret: str
 
 # ========================
 # AUTH ROUTES
@@ -788,7 +801,7 @@ async def promote_student(student_id: str, user: dict = Depends(require_admin)):
         "student_name": student.get("name"), "email": student.get("email"),
         "phone": student.get("phone"), "courses": student.get("course_ids", []),
         "stage": "new", "source": "promotion",
-        "notes": f"Re-enrolment lead from previous year student",
+        "notes": "Re-enrolment lead from previous year student",
         "created_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc),
     }
     result = await db.enquiries.insert_one(enquiry_doc)
@@ -847,6 +860,31 @@ async def get_session_attendance(session_id: str, user: dict = Depends(get_curre
     attendance = await db.attendance.find({"session_id": session_id}).to_list(1000)
     return [serialize_doc(a) for a in attendance]
 
+@teacher_router.get("/batch-report")
+async def get_batch_attendance_report(batch_id: str = None, user: dict = Depends(get_current_user)):
+    if batch_id and batch_id != "all":
+        students = await db.students.find({"batch_id": batch_id}).to_list(1000)
+    else:
+        students = await db.students.find({"status": {"$in": ["active", "completed", "onboarding"]}}).to_list(1000)
+    report = []
+    for student in students:
+        sid = str(student["_id"])
+        total = await db.attendance.count_documents({"student_id": sid})
+        present = await db.attendance.count_documents({"student_id": sid, "status": "present"})
+        pct = round((present / total * 100) if total > 0 else 0, 1)
+        report.append({
+            "student_id": sid,
+            "student_name": student.get("name", "Unknown"),
+            "batch_id": student.get("batch_id"),
+            "total_sessions": total,
+            "present": present,
+            "absent": total - present,
+            "attendance_pct": pct,
+            "status": student.get("status"),
+        })
+    report.sort(key=lambda x: x["attendance_pct"], reverse=True)
+    return report
+
 # ========================
 # PAYMENTS ROUTES (Razorpay)
 # ========================
@@ -858,13 +896,14 @@ async def create_order(data: OrderCreate, user: dict = Depends(get_current_user)
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
     amount_paise = int(data.amount * 100)
-    if RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET:
+    rzp_key_id, rzp_key_secret = await get_razorpay_keys()
+    if rzp_key_id and rzp_key_secret:
         try:
             import razorpay as rzp
-            rz_client = rzp.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+            rz_client = rzp.Client(auth=(rzp_key_id, rzp_key_secret))
             receipt = f"rcpt_{data.invoice_id[:20]}"
             order = rz_client.order.create({"amount": amount_paise, "currency": "INR", "payment_capture": 1, "receipt": receipt})
-            return {"order_id": order["id"], "amount": amount_paise, "currency": "INR", "key": RAZORPAY_KEY_ID, "mock": False}
+            return {"order_id": order["id"], "amount": amount_paise, "currency": "INR", "key": rzp_key_id, "mock": False}
         except Exception as e:
             logger.error(f"Razorpay error: {e}")
     mock_order_id = f"order_mock_{uuid.uuid4().hex[:16]}"
@@ -873,10 +912,11 @@ async def create_order(data: OrderCreate, user: dict = Depends(get_current_user)
 @payments_router.post("/verify")
 async def verify_payment(data: PaymentVerify, user: dict = Depends(get_current_user)):
     verified = False
-    if RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET and data.signature and not data.order_id.startswith("order_mock_"):
+    rzp_key_id, rzp_key_secret = await get_razorpay_keys()
+    if rzp_key_id and rzp_key_secret and data.signature and not data.order_id.startswith("order_mock_"):
         try:
             import razorpay as rzp
-            rz_client = rzp.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+            rz_client = rzp.Client(auth=(rzp_key_id, rzp_key_secret))
             rz_client.utility.verify_payment_signature({
                 "razorpay_order_id": data.order_id,
                 "razorpay_payment_id": data.payment_id,
@@ -950,6 +990,96 @@ async def portal_certificate(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Certificate not yet generated.")
     return serialize_doc(cert)
 
+@portal_router.get("/certificate/pdf")
+async def portal_certificate_pdf(user: dict = Depends(get_current_user)):
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.colors import HexColor
+    student = await db.students.find_one({"email": user.get("email")})
+    if not student or student.get("status") != "completed":
+        raise HTTPException(status_code=404, detail="No certificate found. Complete your course first.")
+    cert = await db.certificates.find_one({"student_id": str(student["_id"])})
+    if not cert:
+        raise HTTPException(status_code=404, detail="Certificate not yet generated.")
+    buf = BytesIO()
+    page_w, page_h = landscape(A4)
+    c = rl_canvas.Canvas(buf, pagesize=landscape(A4))
+    # White background
+    c.setFillColor(HexColor("#FFFFFF"))
+    c.rect(0, 0, page_w, page_h, fill=1, stroke=0)
+    # Outer border (blue)
+    c.setStrokeColor(HexColor("#002EB8"))
+    c.setLineWidth(7)
+    c.rect(18, 18, page_w - 36, page_h - 36, fill=0, stroke=1)
+    # Inner border (gold)
+    c.setStrokeColor(HexColor("#FFD600"))
+    c.setLineWidth(2)
+    c.rect(30, 30, page_w - 60, page_h - 60, fill=0, stroke=1)
+    # Header bar
+    c.setFillColor(HexColor("#002EB8"))
+    c.rect(18, page_h - 95, page_w - 36, 77, fill=1, stroke=0)
+    c.setFillColor(HexColor("#FFFFFF"))
+    c.setFont("Helvetica-Bold", 26)
+    c.drawCentredString(page_w / 2, page_h - 54, "EDUTECH LMS")
+    c.setFont("Helvetica", 11)
+    c.drawCentredString(page_w / 2, page_h - 74, "CERTIFICATE OF COMPLETION")
+    # Subtitle
+    c.setFillColor(HexColor("#8A8F98"))
+    c.setFont("Helvetica", 13)
+    c.drawCentredString(page_w / 2, page_h - 136, "This is to certify that")
+    # Student name
+    student_name = cert.get("student_name", "Student")
+    c.setFillColor(HexColor("#0A0A0A"))
+    c.setFont("Helvetica-Bold", 38)
+    c.drawCentredString(page_w / 2, page_h - 186, student_name)
+    # Gold underline
+    c.setStrokeColor(HexColor("#FFD600"))
+    c.setLineWidth(2.5)
+    name_w = c.stringWidth(student_name, "Helvetica-Bold", 38)
+    c.line(page_w / 2 - name_w / 2 - 12, page_h - 194, page_w / 2 + name_w / 2 + 12, page_h - 194)
+    # Description
+    c.setFillColor(HexColor("#0A0A0A"))
+    c.setFont("Helvetica", 13)
+    c.drawCentredString(page_w / 2, page_h - 226, "has successfully completed all required coursework and examinations")
+    c.drawCentredString(page_w / 2, page_h - 246, "and is hereby awarded this Certificate of Completion.")
+    # Info box
+    box_x = page_w / 2 - 190
+    box_y = page_h - 330
+    c.setFillColor(HexColor("#F8F9FA"))
+    c.roundRect(box_x, box_y, 380, 58, 8, fill=1, stroke=0)
+    c.setStrokeColor(HexColor("#E5E7EB"))
+    c.setLineWidth(1)
+    c.roundRect(box_x, box_y, 380, 58, 8, fill=0, stroke=1)
+    c.setStrokeColor(HexColor("#E5E7EB"))
+    c.line(page_w / 2, box_y + 6, page_w / 2, box_y + 52)
+    c.setFillColor(HexColor("#8A8F98"))
+    c.setFont("Helvetica", 8)
+    c.drawCentredString(page_w / 2 - 95, box_y + 45, "CERTIFICATE ID")
+    c.drawCentredString(page_w / 2 + 95, box_y + 45, "ISSUE DATE")
+    c.setFillColor(HexColor("#002EB8"))
+    c.setFont("Helvetica-Bold", 12)
+    c.drawCentredString(page_w / 2 - 95, box_y + 18, cert.get("certificate_id", "N/A"))
+    issued = cert.get("issued_date", "")
+    try:
+        issued_str = datetime.fromisoformat(issued.replace("Z", "+00:00")).strftime("%B %d, %Y")
+    except Exception:
+        issued_str = issued[:10] if issued else "N/A"
+    c.setFillColor(HexColor("#0A0A0A"))
+    c.setFont("Helvetica-Bold", 12)
+    c.drawCentredString(page_w / 2 + 95, box_y + 18, issued_str)
+    # Footer strip
+    c.setFillColor(HexColor("#EEF2FF"))
+    c.rect(18, 18, page_w - 36, 28, fill=1, stroke=0)
+    c.setFillColor(HexColor("#8A8F98"))
+    c.setFont("Helvetica", 8)
+    c.drawCentredString(page_w / 2, 28, "EduTech LMS  ·  Institute Management Platform  ·  Digitally Authenticated Certificate")
+    c.save()
+    buf.seek(0)
+    safe_name = student_name.replace(" ", "_")
+    return StreamingResponse(buf, media_type="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename=EduTech_Certificate_{safe_name}.pdf"
+    })
+
 @portal_router.post("/fee-query")
 async def portal_fee_query(data: FeeQuery, user: dict = Depends(get_current_user)):
     student = await db.students.find_one({"email": user.get("email")})
@@ -977,6 +1107,93 @@ async def portal_fee_query(data: FeeQuery, user: dict = Depends(get_current_user
             except Exception as e:
                 logger.error(f"Email error: {e}")
     return {"message": "Fee query submitted. Admin will respond shortly."}
+
+# ========================
+# WHATSAPP WEBHOOKS
+# ========================
+WHATSAPP_VERIFY_TOKEN = os.environ.get("WHATSAPP_VERIFY_TOKEN", "edutech-whatsapp-verify-2024")
+webhooks_router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+
+@webhooks_router.get("/whatsapp")
+async def whatsapp_verify(request: Request):
+    hub_mode = request.query_params.get("hub.mode")
+    hub_token = request.query_params.get("hub.verify_token")
+    hub_challenge = request.query_params.get("hub.challenge")
+    if hub_mode == "subscribe" and hub_token == WHATSAPP_VERIFY_TOKEN:
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(content=hub_challenge or "")
+    raise HTTPException(status_code=403, detail="Invalid verify token")
+
+@webhooks_router.post("/whatsapp")
+async def whatsapp_receive(request: Request):
+    try:
+        content_type = request.headers.get("content-type", "")
+        if "application/json" in content_type:
+            body = await request.json()
+            # Meta WhatsApp Cloud API format
+            for entry in body.get("entry", []):
+                for change in entry.get("changes", []):
+                    value = change.get("value", {})
+                    messages = value.get("messages", [])
+                    contacts = value.get("contacts", [])
+                    for msg in messages:
+                        if msg.get("type") == "text":
+                            phone = msg.get("from", "")
+                            text = msg.get("text", {}).get("body", "")
+                            name = contacts[0]["profile"]["name"] if contacts else f"WhatsApp +{phone}"
+                            await db.enquiries.insert_one({
+                                "student_name": name, "email": f"wa_{phone}@whatsapp.com",
+                                "phone": phone, "courses": [], "stage": "new", "source": "whatsapp",
+                                "notes": f"WhatsApp: {text[:200]}",
+                                "created_at": datetime.now(timezone.utc),
+                                "updated_at": datetime.now(timezone.utc),
+                            })
+                            logger.info(f"WhatsApp lead created: {name} ({phone})")
+        else:
+            # Twilio form-encoded format
+            form = await request.form()
+            phone = str(form.get("From", "")).replace("whatsapp:", "").strip()
+            text = str(form.get("Body", ""))
+            name = str(form.get("ProfileName", f"WhatsApp {phone}"))
+            if phone:
+                await db.enquiries.insert_one({
+                    "student_name": name, "email": f"wa_{phone.replace('+','')}@whatsapp.com",
+                    "phone": phone, "courses": [], "stage": "new", "source": "whatsapp",
+                    "notes": f"WhatsApp: {text[:200]}",
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                })
+                logger.info(f"Twilio WhatsApp lead: {name} ({phone})")
+    except Exception as e:
+        logger.error(f"WhatsApp webhook error: {e}")
+    return {"status": "ok"}
+
+# ========================
+# SETTINGS ROUTES
+# ========================
+settings_router = APIRouter(prefix="/settings", tags=["settings"])
+
+@settings_router.get("/razorpay")
+async def get_razorpay_config(user: dict = Depends(require_admin)):
+    db_settings = await db.app_settings.find_one({"key": "razorpay"})
+    if db_settings and db_settings.get("key_id"):
+        return {"key_id": db_settings.get("key_id", ""), "has_secret": bool(db_settings.get("key_secret", "")), "configured": bool(db_settings.get("key_id") and db_settings.get("key_secret")), "source": "database"}
+    return {"key_id": RAZORPAY_KEY_ID or "", "has_secret": bool(RAZORPAY_KEY_SECRET), "configured": bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET), "source": "environment"}
+
+@settings_router.post("/razorpay")
+async def save_razorpay_config(data: RazorpaySettings, user: dict = Depends(require_admin)):
+    await db.app_settings.update_one(
+        {"key": "razorpay"},
+        {"$set": {"key": "razorpay", "key_id": data.key_id, "key_secret": data.key_secret, "updated_at": datetime.now(timezone.utc)}},
+        upsert=True
+    )
+    return {"message": "Razorpay settings saved successfully", "configured": True}
+
+@settings_router.get("/whatsapp-webhook")
+async def get_whatsapp_info(request: Request, user: dict = Depends(require_admin)):
+    backend_url = os.environ.get("REACT_APP_BACKEND_URL") or str(request.base_url).rstrip("/")
+    return {"webhook_url": f"{backend_url}/api/webhooks/whatsapp", "verify_token": WHATSAPP_VERIFY_TOKEN}
+
 # ========================
 api_router.include_router(auth_router)
 api_router.include_router(users_router)
@@ -990,6 +1207,8 @@ api_router.include_router(students_router)
 api_router.include_router(teacher_router)
 api_router.include_router(payments_router)
 api_router.include_router(portal_router)
+api_router.include_router(webhooks_router)
+api_router.include_router(settings_router)
 app.include_router(api_router)
 
 # ========================

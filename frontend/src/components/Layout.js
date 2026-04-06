@@ -4,7 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   LayoutDashboard, Users, GraduationCap, DollarSign,
   BookOpen, Menu, X, LogOut, ChevronRight, Building2,
-  Users2, UserCog
+  Users2, UserCog, BarChart2, Settings
 } from "lucide-react";
 
 const navItems = [
@@ -14,7 +14,9 @@ const navItems = [
   { path: "/courses", label: "Courses", icon: GraduationCap, roles: ["admin"] },
   { path: "/finance", label: "Finance", icon: DollarSign, roles: ["admin"] },
   { path: "/students", label: "Students", icon: Users2, roles: ["admin"] },
+  { path: "/attendance-reports", label: "Attendance Reports", icon: BarChart2, roles: ["admin"] },
   { path: "/users", label: "User Management", icon: UserCog, roles: ["admin"] },
+  { path: "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
   { path: "/portal", label: "My Portal", icon: LayoutDashboard, roles: ["student"] },
 ];
 

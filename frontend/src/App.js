@@ -14,6 +14,8 @@ import TeacherAttendance from "./pages/TeacherAttendance";
 import Courses from "./pages/Courses";
 import UserManagement from "./pages/UserManagement";
 import StudentPortal from "./pages/StudentPortal";
+import AttendanceReports from "./pages/AttendanceReports";
+import Settings from "./pages/Settings";
 
 const ProtectedRoute = ({ children, roles }) => {
   const { user, loading } = useAuth();
@@ -121,6 +123,22 @@ function AppRoutes() {
             element={
               <ProtectedRoute roles={["student", "admin"]}>
                 <StudentPortal />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-reports"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <AttendanceReports />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <Settings />
               </ProtectedRoute>
             }
           />

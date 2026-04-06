@@ -6,7 +6,7 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   Building2, LogOut, User, BookOpen, DollarSign,
   Award, MessageSquare, Pencil, X, Send, CheckCircle,
-  Download, Clock, TrendingUp
+  Download, Clock, TrendingUp, CreditCard, Smartphone
 } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -40,6 +40,19 @@ export default function StudentPortal() {
   const [saving, setSaving] = useState(false);
   const [queryText, setQueryText] = useState("");
   const [querySending, setQuerySending] = useState(false);
+  const [mockPayment, setMockPayment] = useState(null);
+  const [rzpLoading, setRzpLoading] = useState(null);
+
+  const loadRazorpayScript = () =>
+    new Promise((resolve) => {
+      if (document.getElementById("rzp-script-portal")) return resolve(true);
+      const s = document.createElement("script");
+      s.id = "rzp-script-portal";
+      s.src = "https://checkout.razorpay.com/v1/checkout.js";
+      s.onload = () => resolve(true);
+      s.onerror = () => resolve(false);
+      document.body.appendChild(s);
+    });
 
   useEffect(() => {
     fetchAll();
@@ -97,40 +110,87 @@ export default function StudentPortal() {
     navigate("/login");
   };
 
-  const downloadCertificate = () => {
+  const downloadCertificate = async () => {
     if (!certificate) return;
-    const html = `<!DOCTYPE html>
-<html><head><title>Certificate of Completion</title>
-<style>
-  body { font-family: 'Georgia', serif; margin: 0; padding: 60px; background: #fff; }
-  .border { border: 12px solid #002EB8; padding: 40px; }
-  .inner-border { border: 3px solid #FFD600; padding: 32px; text-align: center; }
-  h1 { font-size: 42px; color: #002EB8; margin: 0 0 4px; }
-  .subtitle { font-size: 16px; color: #8A8F98; letter-spacing: 4px; text-transform: uppercase; margin-bottom: 32px; }
-  h2 { font-size: 36px; color: #0A0A0A; border-bottom: 2px solid #FFD600; padding-bottom: 8px; display: inline-block; margin: 16px 0; }
-  p { font-size: 18px; color: #0A0A0A; line-height: 1.8; }
-  .cert-id { font-size: 13px; color: #8A8F98; margin-top: 32px; letter-spacing: 2px; }
-  .date { font-size: 14px; color: #8A8F98; }
-  .seal { font-size: 48px; margin: 20px 0; }
-</style></head>
-<body><div class="border"><div class="inner-border">
-  <div class="seal">🎓</div>
-  <h1>EduTech LMS</h1>
-  <p class="subtitle">Certificate of Completion</p>
-  <p>This is to certify that</p>
-  <h2>${certificate.student_name}</h2>
-  <p>has successfully completed all required coursework and examinations<br/>and is hereby awarded this Certificate of Completion.</p>
-  <p class="date">${new Date(certificate.issued_date).toLocaleDateString("en-IN", { dateStyle: "long" })}</p>
-  <p class="cert-id">Certificate ID: ${certificate.certificate_id}</p>
-</div></div></body></html>`;
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `EduTech_Certificate_${certificate.student_name?.replace(/\s/g, "_")}.html`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Certificate downloaded!");
+    try {
+      const response = await axios.get(`${API}/api/portal/certificate/pdf`, {
+        withCredentials: true,
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(new Blob([response.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `EduTech_Certificate_${certificate.student_name?.replace(/\s/g, "_")}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("PDF Certificate downloaded!");
+    } catch {
+      toast.error("Failed to download certificate");
+    }
+  };
+
+  const handlePayNow = async (invoice) => {
+    setRzpLoading(invoice.id);
+    try {
+      const orderRes = await axios.post(`${API}/api/payments/create-order`, {
+        invoice_id: invoice.id,
+        amount: invoice.balance,
+      }, { withCredentials: true });
+      const { order_id, amount, currency, key, mock } = orderRes.data;
+      if (mock) {
+        setMockPayment({ invoice, order_id, amount: invoice.balance });
+        return;
+      }
+      const loaded = await loadRazorpayScript();
+      if (!loaded) return toast.error("Failed to load Razorpay");
+      const options = {
+        key, amount, currency, order_id,
+        name: "EduTech LMS",
+        description: `Fee for ${invoice.course_name}`,
+        prefill: { name: student?.name || "" },
+        handler: async (response) => {
+          const verifyRes = await axios.post(`${API}/api/payments/verify`, {
+            invoice_id: invoice.id,
+            payment_id: response.razorpay_payment_id,
+            order_id: response.razorpay_order_id,
+            signature: response.razorpay_signature,
+            amount: invoice.balance,
+          }, { withCredentials: true });
+          if (verifyRes.data.success) {
+            toast.success("Payment successful!");
+            const [invRes] = await Promise.all([
+              axios.get(`${API}/api/portal/invoices`, { withCredentials: true }),
+            ]);
+            setInvoices(invRes.data);
+          }
+        },
+        theme: { color: "#002EB8" },
+      };
+      const rzp = new window.Razorpay(options);
+      rzp.open();
+    } catch {
+      toast.error("Payment initiation failed");
+    } finally {
+      setRzpLoading(null);
+    }
+  };
+
+  const handleMockPayConfirm = async () => {
+    if (!mockPayment) return;
+    try {
+      const res = await axios.post(`${API}/api/payments/verify`, {
+        invoice_id: mockPayment.invoice.id,
+        payment_id: `pay_portal_mock_${Date.now()}`,
+        order_id: mockPayment.order_id,
+        amount: mockPayment.amount,
+      }, { withCredentials: true });
+      if (res.data.success) {
+        toast.success("Mock payment successful!");
+        const invRes = await axios.get(`${API}/api/portal/invoices`, { withCredentials: true });
+        setInvoices(invRes.data);
+      }
+    } catch { toast.error("Mock payment failed"); }
+    finally { setMockPayment(null); }
   };
 
   const presentCount = attendance.filter((a) => a.status === "present").length;
@@ -309,6 +369,31 @@ export default function StudentPortal() {
       {/* FEES TAB */}
       {activeTab === "fees" && (
         <div className="space-y-4">
+          {/* Mock Payment Modal */}
+          {mockPayment && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-lg border border-[#E5E7EB] w-full max-w-sm shadow-xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <Smartphone size={20} className="text-[#002EB8]" />
+                  <h3 className="font-cabinet font-bold text-lg">Razorpay (Demo Mode)</h3>
+                </div>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-4 text-xs text-yellow-800">
+                  Add Razorpay keys in Settings for real payments.
+                </div>
+                <div className="space-y-2 text-sm mb-4">
+                  <div className="flex justify-between"><span className="text-[#8A8F98]">Course</span><span className="font-medium">{mockPayment.invoice.course_name}</span></div>
+                  <div className="flex justify-between border-t border-[#E5E7EB] pt-2"><span className="text-[#8A8F98]">Amount</span><span className="font-bold text-[#002EB8]">₹{mockPayment.amount?.toLocaleString()}</span></div>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => setMockPayment(null)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm">Cancel</button>
+                  <button onClick={handleMockPayConfirm} data-testid="portal-mock-pay-confirm" className="flex-1 bg-[#002EB8] text-white py-2 rounded-md text-sm font-medium hover:bg-[#001A85]">
+                    Simulate Payment
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-white border border-[#E5E7EB] rounded-lg p-4">
               <p className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98]">Total Paid</p>
@@ -330,7 +415,7 @@ export default function StudentPortal() {
               <table className="w-full text-sm" data-testid="portal-invoices">
                 <thead>
                   <tr className="border-b border-[#E5E7EB] bg-[#F8F9FA]">
-                    {["Course", "Total", "Paid", "Balance", "Status"].map((h) => (
+                    {["Course", "Total", "Paid", "Balance", "Status", "Action"].map((h) => (
                       <th key={h} className="text-left px-4 py-2.5 text-xs font-mono uppercase tracking-[0.1em] text-[#8A8F98]">{h}</th>
                     ))}
                   </tr>
@@ -346,6 +431,23 @@ export default function StudentPortal() {
                         <span className={`text-xs px-2 py-0.5 rounded border capitalize ${inv.status === "paid" ? "bg-green-50 text-green-700 border-green-200" : inv.status === "partial" ? "bg-blue-50 text-[#002EB8] border-blue-200" : "bg-yellow-50 text-yellow-700 border-yellow-200"}`}>
                           {inv.status}
                         </span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {(inv.balance || 0) > 0 ? (
+                          <button
+                            onClick={() => handlePayNow(inv)}
+                            disabled={rzpLoading === inv.id}
+                            data-testid={`portal-pay-btn-${inv.id}`}
+                            className="flex items-center gap-1 text-xs text-[#002EB8] hover:underline font-medium disabled:opacity-50"
+                          >
+                            <CreditCard size={12} />
+                            {rzpLoading === inv.id ? "..." : "Pay Now"}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-[#00C853] flex items-center gap-1">
+                            <CheckCircle size={12} /> Paid
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -375,7 +477,7 @@ export default function StudentPortal() {
               </p>
               <button onClick={downloadCertificate} data-testid="download-certificate-button"
                 className="flex items-center gap-2 mx-auto px-6 py-3 bg-[#002EB8] text-white text-sm rounded-md hover:bg-[#001A85] transition-colors font-medium">
-                <Download size={16} /> Download Certificate
+                <Download size={16} /> Download PDF Certificate
               </button>
             </>
           ) : (
