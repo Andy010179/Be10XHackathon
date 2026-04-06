@@ -11,6 +11,9 @@ import Finance from "./pages/Finance";
 import Students from "./pages/Students";
 import StudentProfile from "./pages/StudentProfile";
 import TeacherAttendance from "./pages/TeacherAttendance";
+import Courses from "./pages/Courses";
+import UserManagement from "./pages/UserManagement";
+import StudentPortal from "./pages/StudentPortal";
 
 const ProtectedRoute = ({ children, roles }) => {
   const { user, loading } = useAuth();
@@ -27,6 +30,7 @@ const ProtectedRoute = ({ children, roles }) => {
   if (!user) return <Navigate to="/login" replace />;
   if (roles && !roles.includes(user.role)) {
     if (user.role === "teacher") return <Navigate to="/teacher/attendance" replace />;
+    if (user.role === "student") return <Navigate to="/portal" replace />;
     return <Navigate to="/dashboard" replace />;
   }
   return children;
@@ -93,6 +97,30 @@ function AppRoutes() {
             element={
               <ProtectedRoute roles={["admin"]}>
                 <StudentProfile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/courses"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <Courses />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <UserManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/portal"
+            element={
+              <ProtectedRoute roles={["student", "admin"]}>
+                <StudentPortal />
               </ProtectedRoute>
             }
           />

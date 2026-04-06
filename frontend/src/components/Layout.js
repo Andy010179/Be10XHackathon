@@ -3,15 +3,19 @@ import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import {
   LayoutDashboard, Users, GraduationCap, DollarSign,
-  BookOpen, Menu, X, LogOut, ChevronRight, Building2
+  BookOpen, Menu, X, LogOut, ChevronRight, Building2,
+  Users2, UserCog
 } from "lucide-react";
 
 const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "employer"] },
   { path: "/enquiries", label: "CRM Pipeline", icon: Users, roles: ["admin"] },
   { path: "/academic", label: "Academic", icon: BookOpen, roles: ["admin"] },
+  { path: "/courses", label: "Courses", icon: GraduationCap, roles: ["admin"] },
   { path: "/finance", label: "Finance", icon: DollarSign, roles: ["admin"] },
-  { path: "/students", label: "Students", icon: GraduationCap, roles: ["admin"] },
+  { path: "/students", label: "Students", icon: Users2, roles: ["admin"] },
+  { path: "/users", label: "User Management", icon: UserCog, roles: ["admin"] },
+  { path: "/portal", label: "My Portal", icon: LayoutDashboard, roles: ["student"] },
 ];
 
 export default function Layout() {

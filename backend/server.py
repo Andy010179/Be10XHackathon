@@ -14,6 +14,8 @@ import bcrypt
 import uuid
 import logging
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+import asyncio
+import resend
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,6 +27,10 @@ MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
 
 # --- DB ---
 client = AsyncIOMotorClient(MONGO_URL)
@@ -111,6 +117,44 @@ def serialize_doc(doc: dict) -> dict:
         else:
             result[k] = v
     return result
+
+# --- Email helper (Resend) ---
+async def send_nudge_email(recipient_email: str, student_name: str, total_balance: float) -> bool:
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY not configured — skipping email")
+        return False
+    resend.api_key = RESEND_API_KEY
+    html = f"""
+    <html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:0;">
+    <div style="background:#002EB8;padding:24px 28px;border-radius:8px 8px 0 0;">
+      <h1 style="color:white;margin:0;font-size:20px;font-weight:700;">EduTech LMS &mdash; Payment Reminder</h1>
+    </div>
+    <div style="background:#F8F9FA;border:1px solid #E5E7EB;border-radius:0 0 8px 8px;padding:28px;">
+      <p style="font-size:15px;color:#0A0A0A;margin:0 0 12px;">Dear <strong>{student_name}</strong>,</p>
+      <p style="font-size:15px;color:#0A0A0A;margin:0 0 20px;">
+        You have an outstanding fee balance of <strong style="color:#FF2B2B;">&#8377;{total_balance:,.2f}</strong> with EduTech Institute.
+        Please contact the admin office or login to the student portal to clear your dues.
+      </p>
+      <div style="background:white;border:1px solid #E5E7EB;border-radius:8px;padding:20px;margin-bottom:20px;text-align:center;">
+        <p style="margin:0;font-size:12px;color:#8A8F98;text-transform:uppercase;letter-spacing:2px;">Outstanding Balance</p>
+        <p style="margin:8px 0 0;font-size:32px;font-weight:800;color:#FF2B2B;">&#8377;{total_balance:,.2f}</p>
+      </div>
+      <hr style="border:none;border-top:1px solid #E5E7EB;margin:20px 0;"/>
+      <p style="font-size:12px;color:#8A8F98;margin:0;">EduTech LMS &middot; Institute Management Platform</p>
+    </div></body></html>
+    """
+    try:
+        params = {
+            "from": f"EduTech LMS <{SENDER_EMAIL}>",
+            "to": [recipient_email],
+            "subject": f"Fee Payment Reminder — ₹{total_balance:,.2f} outstanding",
+            "html": html,
+        }
+        await asyncio.to_thread(resend.Emails.send, params)
+        return True
+    except Exception as e:
+        logger.error(f"Resend email error: {e}")
+        return False
 
 # --- App setup ---
 app = FastAPI(title="EduTech LMS API")
@@ -230,6 +274,26 @@ class AttendanceMark(BaseModel):
 
 class PaymentUpdate(BaseModel):
     amount: float
+
+class OrderCreate(BaseModel):
+    invoice_id: str
+    amount: float
+
+class PaymentVerify(BaseModel):
+    invoice_id: str
+    payment_id: str
+    order_id: str
+    signature: Optional[str] = None
+    amount: float
+
+class PersonalUpdate(BaseModel):
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+
+class FeeQuery(BaseModel):
+    message: str
 
 # ========================
 # AUTH ROUTES
@@ -538,7 +602,19 @@ async def send_nudge(student_id: str, user: dict = Depends(require_admin)):
         "total_balance": total_balance, "sent_at": datetime.now(timezone.utc),
         "sent_by": user.get("id") or user.get("_id")
     })
-    return {"message": f"Payment reminder sent. Outstanding: ₹{total_balance:.2f}"}
+    # Send email via Resend
+    student = await db.students.find_one({"_id": ObjectId(student_id)})
+    email_sent = False
+    if student and student.get("email"):
+        email_sent = await send_nudge_email(student["email"], student.get("name", "Student"), total_balance)
+    msg = f"Payment reminder logged. Outstanding: ₹{total_balance:,.2f}"
+    if email_sent:
+        msg += " · Email sent via Resend"
+    elif RESEND_API_KEY:
+        msg += " · Email delivery attempted"
+    else:
+        msg += " · Add RESEND_API_KEY to .env to enable emails"
+    return {"message": msg, "email_sent": email_sent, "total_balance": total_balance}
 
 # ========================
 # DASHBOARD ROUTES
@@ -772,7 +848,135 @@ async def get_session_attendance(session_id: str, user: dict = Depends(get_curre
     return [serialize_doc(a) for a in attendance]
 
 # ========================
-# INCLUDE ROUTERS
+# PAYMENTS ROUTES (Razorpay)
+# ========================
+payments_router = APIRouter(prefix="/payments", tags=["payments"])
+
+@payments_router.post("/create-order")
+async def create_order(data: OrderCreate, user: dict = Depends(get_current_user)):
+    invoice = await db.invoices.find_one({"_id": ObjectId(data.invoice_id)})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    amount_paise = int(data.amount * 100)
+    if RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET:
+        try:
+            import razorpay as rzp
+            rz_client = rzp.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+            receipt = f"rcpt_{data.invoice_id[:20]}"
+            order = rz_client.order.create({"amount": amount_paise, "currency": "INR", "payment_capture": 1, "receipt": receipt})
+            return {"order_id": order["id"], "amount": amount_paise, "currency": "INR", "key": RAZORPAY_KEY_ID, "mock": False}
+        except Exception as e:
+            logger.error(f"Razorpay error: {e}")
+    mock_order_id = f"order_mock_{uuid.uuid4().hex[:16]}"
+    return {"order_id": mock_order_id, "amount": amount_paise, "currency": "INR", "key": "rzp_test_demo", "mock": True}
+
+@payments_router.post("/verify")
+async def verify_payment(data: PaymentVerify, user: dict = Depends(get_current_user)):
+    verified = False
+    if RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET and data.signature and not data.order_id.startswith("order_mock_"):
+        try:
+            import razorpay as rzp
+            rz_client = rzp.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+            rz_client.utility.verify_payment_signature({
+                "razorpay_order_id": data.order_id,
+                "razorpay_payment_id": data.payment_id,
+                "razorpay_signature": data.signature
+            })
+            verified = True
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid payment signature")
+    else:
+        verified = True  # Mock/demo mode
+    if verified:
+        invoice = await db.invoices.find_one({"_id": ObjectId(data.invoice_id)})
+        if invoice:
+            new_paid = invoice.get("paid_amount", 0) + data.amount
+            new_balance = max(0, invoice.get("total", 0) - new_paid)
+            new_status = "paid" if new_balance <= 0 else "partial"
+            await db.invoices.update_one(
+                {"_id": ObjectId(data.invoice_id)},
+                {"$set": {"paid_amount": new_paid, "balance": new_balance, "status": new_status}}
+            )
+            await db.payments.insert_one({
+                "invoice_id": data.invoice_id, "payment_id": data.payment_id,
+                "order_id": data.order_id, "amount": data.amount,
+                "method": "razorpay", "created_at": datetime.now(timezone.utc)
+            })
+        return {"success": True, "payment_id": data.payment_id, "message": "Payment recorded successfully"}
+    raise HTTPException(status_code=400, detail="Payment verification failed")
+
+# ========================
+# STUDENT PORTAL ROUTES
+# ========================
+portal_router = APIRouter(prefix="/portal", tags=["portal"])
+
+@portal_router.get("/me")
+async def portal_me(user: dict = Depends(get_current_user)):
+    student = await db.students.find_one({"email": user.get("email")})
+    if not student:
+        return {"id": user.get("_id"), "name": user.get("name"), "email": user.get("email"), "role": user.get("role"), "no_student_record": True}
+    return serialize_doc(student)
+
+@portal_router.put("/me")
+async def portal_update_me(data: PersonalUpdate, user: dict = Depends(get_current_user)):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    await db.students.update_one({"email": user.get("email")}, {"$set": update})
+    student = await db.students.find_one({"email": user.get("email")})
+    return serialize_doc(student)
+
+@portal_router.get("/invoices")
+async def portal_invoices(user: dict = Depends(get_current_user)):
+    student = await db.students.find_one({"email": user.get("email")})
+    if not student:
+        return []
+    invoices = await db.invoices.find({"student_id": str(student["_id"])}).sort("created_at", -1).to_list(100)
+    return [serialize_doc(i) for i in invoices]
+
+@portal_router.get("/attendance")
+async def portal_attendance(user: dict = Depends(get_current_user)):
+    student = await db.students.find_one({"email": user.get("email")})
+    if not student:
+        return []
+    attendance = await db.attendance.find({"student_id": str(student["_id"])}).sort("marked_at", -1).to_list(200)
+    return [serialize_doc(a) for a in attendance]
+
+@portal_router.get("/certificate")
+async def portal_certificate(user: dict = Depends(get_current_user)):
+    student = await db.students.find_one({"email": user.get("email")})
+    if not student or student.get("status") != "completed":
+        raise HTTPException(status_code=404, detail="No certificate found. Complete your course first.")
+    cert = await db.certificates.find_one({"student_id": str(student["_id"])})
+    if not cert:
+        raise HTTPException(status_code=404, detail="Certificate not yet generated.")
+    return serialize_doc(cert)
+
+@portal_router.post("/fee-query")
+async def portal_fee_query(data: FeeQuery, user: dict = Depends(get_current_user)):
+    student = await db.students.find_one({"email": user.get("email")})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student record not found")
+    await db.fee_queries.insert_one({
+        "student_id": str(student["_id"]), "student_name": student.get("name"),
+        "student_email": user.get("email"), "message": data.message,
+        "status": "open", "created_at": datetime.now(timezone.utc)
+    })
+    # Notify admin via email if Resend is configured
+    if RESEND_API_KEY:
+        admin = await db.users.find_one({"role": "admin"})
+        if admin and admin.get("email"):
+            try:
+                resend.api_key = RESEND_API_KEY
+                html = f"""<html><body style="font-family:sans-serif;padding:24px;">
+                <h2 style="color:#002EB8;">Fee Query Received</h2>
+                <p><strong>From:</strong> {student.get('name')} ({user.get('email')})</p>
+                <p><strong>Query:</strong> {data.message}</p>
+                <p style="color:#8A8F98;font-size:12px;">EduTech LMS — Student Portal</p>
+                </body></html>"""
+                params = {"from": f"EduTech LMS <{SENDER_EMAIL}>", "to": [admin["email"]], "subject": f"Fee Query from {student.get('name')}", "html": html}
+                await asyncio.to_thread(resend.Emails.send, params)
+            except Exception as e:
+                logger.error(f"Email error: {e}")
+    return {"message": "Fee query submitted. Admin will respond shortly."}
 # ========================
 api_router.include_router(auth_router)
 api_router.include_router(users_router)
@@ -784,6 +988,8 @@ api_router.include_router(finance_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(students_router)
 api_router.include_router(teacher_router)
+api_router.include_router(payments_router)
+api_router.include_router(portal_router)
 app.include_router(api_router)
 
 # ========================

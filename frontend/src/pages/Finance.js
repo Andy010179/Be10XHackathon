@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Plus, Bell, X, CreditCard } from "lucide-react";
+import { Plus, Bell, X, CreditCard, Smartphone } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -10,6 +10,17 @@ const STATUS_STYLES = {
   partial: "bg-blue-50 text-[#002EB8] border-blue-200",
   paid: "bg-green-50 text-[#00C853] border-green-200",
 };
+
+const loadRazorpayScript = () =>
+  new Promise((resolve) => {
+    if (document.getElementById("razorpay-script")) return resolve(true);
+    const s = document.createElement("script");
+    s.id = "razorpay-script";
+    s.src = "https://checkout.razorpay.com/v1/checkout.js";
+    s.onload = () => resolve(true);
+    s.onerror = () => resolve(false);
+    document.body.appendChild(s);
+  });
 
 export default function Finance() {
   const [invoices, setInvoices] = useState([]);
@@ -20,6 +31,8 @@ export default function Finance() {
   const [showPayForm, setShowPayForm] = useState(null);
   const [nudging, setNudging] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [mockPayment, setMockPayment] = useState(null);
+  const [rzpLoading, setRzpLoading] = useState(null);
 
   const [form, setForm] = useState({
     student_id: "", student_name: "", course_id: "", course_name: "", base_fee: "", discount: "0"
@@ -96,6 +109,66 @@ export default function Finance() {
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to send nudge");
     } finally { setNudging(null); }
+  };
+
+  const handleRazorpay = async (invoice) => {
+    setRzpLoading(invoice.id);
+    try {
+      const orderRes = await axios.post(`${API}/api/payments/create-order`, {
+        invoice_id: invoice.id,
+        amount: invoice.balance,
+      }, { withCredentials: true });
+      const { order_id, amount, currency, key, mock } = orderRes.data;
+
+      if (mock) {
+        setMockPayment({ invoice, order_id, amount: invoice.balance });
+        return;
+      }
+      const loaded = await loadRazorpayScript();
+      if (!loaded) return toast.error("Failed to load Razorpay");
+      const options = {
+        key, amount, currency, order_id,
+        name: "EduTech LMS",
+        description: `Fee for ${invoice.course_name}`,
+        prefill: { name: invoice.student_name },
+        handler: async (response) => {
+          const verifyRes = await axios.post(`${API}/api/payments/verify`, {
+            invoice_id: invoice.id,
+            payment_id: response.razorpay_payment_id,
+            order_id: response.razorpay_order_id,
+            signature: response.razorpay_signature,
+            amount: invoice.balance,
+          }, { withCredentials: true });
+          if (verifyRes.data.success) {
+            toast.success("Payment successful!");
+            const invRes = await axios.get(`${API}/api/finance/invoices`, { withCredentials: true });
+            setInvoices(invRes.data);
+          }
+        },
+        theme: { color: "#002EB8" },
+      };
+      const rzp = new window.Razorpay(options);
+      rzp.open();
+    } catch { toast.error("Payment initiation failed"); }
+    finally { setRzpLoading(null); }
+  };
+
+  const handleMockPaymentConfirm = async () => {
+    if (!mockPayment) return;
+    try {
+      const res = await axios.post(`${API}/api/payments/verify`, {
+        invoice_id: mockPayment.invoice.id,
+        payment_id: `pay_mock_${Date.now()}`,
+        order_id: mockPayment.order_id,
+        amount: mockPayment.amount,
+      }, { withCredentials: true });
+      if (res.data.success) {
+        toast.success("Mock payment successful!");
+        const invRes = await axios.get(`${API}/api/finance/invoices`, { withCredentials: true });
+        setInvoices(invRes.data);
+      }
+    } catch { toast.error("Mock payment failed"); }
+    finally { setMockPayment(null); }
   };
 
   const totalRevenue = invoices.reduce((s, i) => s + (i.paid_amount || 0), 0);
@@ -189,7 +262,31 @@ export default function Finance() {
         </div>
       )}
 
-      {/* Payment Modal */}
+      {/* Mock Payment Modal */}
+      {mockPayment && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg border border-[#E5E7EB] w-full max-w-sm shadow-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Smartphone size={20} className="text-[#002EB8]" />
+              <h3 className="font-cabinet font-bold text-lg">Razorpay (Demo Mode)</h3>
+            </div>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-4 text-xs text-yellow-800">
+              Add <code className="font-mono bg-yellow-100 px-1">RAZORPAY_KEY_ID</code> & <code className="font-mono bg-yellow-100 px-1">RAZORPAY_KEY_SECRET</code> to .env for real payments.
+            </div>
+            <div className="space-y-3 text-sm mb-4">
+              <div className="flex justify-between"><span className="text-[#8A8F98]">Student</span><span className="font-medium">{mockPayment.invoice.student_name}</span></div>
+              <div className="flex justify-between"><span className="text-[#8A8F98]">Course</span><span className="font-medium">{mockPayment.invoice.course_name}</span></div>
+              <div className="flex justify-between border-t border-[#E5E7EB] pt-2"><span className="text-[#8A8F98]">Amount</span><span className="font-bold text-[#002EB8]">₹{mockPayment.amount?.toLocaleString()}</span></div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setMockPayment(null)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm hover:bg-[#F8F9FA]">Cancel</button>
+              <button onClick={handleMockPaymentConfirm} data-testid="mock-payment-confirm" className="flex-1 bg-[#002EB8] text-white py-2 rounded-md text-sm font-medium hover:bg-[#001A85]">
+                Simulate Payment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showPayForm && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg border border-[#E5E7EB] w-full max-w-sm shadow-xl p-6">
@@ -243,6 +340,16 @@ export default function Finance() {
                           className="flex items-center gap-1 text-xs text-[#002EB8] hover:underline"
                         >
                           <CreditCard size={12} /> Pay
+                        </button>
+                      )}
+                      {(inv.balance || 0) > 0 && (
+                        <button
+                          onClick={() => handleRazorpay(inv)}
+                          disabled={rzpLoading === inv.id}
+                          data-testid={`razorpay-btn-${inv.id}`}
+                          className="flex items-center gap-1 text-xs text-purple-600 hover:underline disabled:opacity-50"
+                        >
+                          <Smartphone size={12} /> {rzpLoading === inv.id ? "..." : "Razorpay"}
                         </button>
                       )}
                       {(inv.balance || 0) > 0 && (
