@@ -1191,7 +1191,7 @@ async def save_razorpay_config(data: RazorpaySettings, user: dict = Depends(requ
 
 @settings_router.get("/whatsapp-webhook")
 async def get_whatsapp_info(request: Request, user: dict = Depends(require_admin)):
-    backend_url = os.environ.get("REACT_APP_BACKEND_URL") or str(request.base_url).rstrip("/")
+    backend_url = FRONTEND_URL or str(request.base_url).rstrip("/")
     return {"webhook_url": f"{backend_url}/api/webhooks/whatsapp", "verify_token": WHATSAPP_VERIFY_TOKEN}
 
 # ========================

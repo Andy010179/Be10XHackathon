@@ -95,9 +95,10 @@ February 2026
 - Add RAZORPAY_KEY_ID + RAZORPAY_KEY_SECRET to backend/.env for live payments
 
 ## Prioritized Backlog
-- P0: WhatsApp webhook for CRM lead auto-capture
-- P0: PDF certificate generation (instead of HTML)
-- P1: Student fee payment from portal (Razorpay in student portal)
-- P1: Attendance reports per batch
+- P0: WhatsApp webhook for CRM lead auto-capture ✅ DONE
+- P0: PDF certificate generation (instead of HTML) ✅ DONE
+- P1: Student fee payment from portal (Razorpay in student portal) ✅ DONE
+- P1: Attendance reports per batch ✅ DONE
+- P1: Settings page for Razorpay keys ✅ DONE
 - P2: Multi-tenant institute isolation
 - P2: Parent login portal
