@@ -1,89 +1,835 @@
-from fastapi import FastAPI, APIRouter
 from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
+load_dotenv()
+
+from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, Field, BeforeValidator
+from typing import Annotated, List, Optional, Any
+from bson import ObjectId
+from datetime import datetime, timezone, timedelta
 import os
-import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+import jwt as pyjwt
+import bcrypt
 import uuid
-from datetime import datetime, timezone
+import logging
+from emergentintegrations.llm.chat import LlmChat, UserMessage
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+# --- Constants ---
+JWT_SECRET = os.environ["JWT_SECRET"]
+JWT_ALGORITHM = "HS256"
+MONGO_URL = os.environ["MONGO_URL"]
+DB_NAME = os.environ["DB_NAME"]
+EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# --- DB ---
+client = AsyncIOMotorClient(MONGO_URL)
+db = client[DB_NAME]
 
-# Create the main app without a prefix
-app = FastAPI()
+# --- PyObjectId ---
+def coerce_object_id(v: Any) -> str:
+    return str(v)
 
-# Create a router with the /api prefix
+PyObjectId = Annotated[str, BeforeValidator(coerce_object_id)]
+
+# --- Password helpers ---
+def hash_password(password: str) -> str:
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode(), salt).decode()
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return bcrypt.checkpw(plain.encode(), hashed.encode())
+
+# --- JWT helpers ---
+def create_access_token(user_id: str, email: str) -> str:
+    payload = {
+        "sub": user_id, "email": email, "type": "access",
+        "exp": datetime.now(timezone.utc) + timedelta(hours=8)
+    }
+    return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def create_refresh_token(user_id: str) -> str:
+    payload = {
+        "sub": user_id, "type": "refresh",
+        "exp": datetime.now(timezone.utc) + timedelta(days=7)
+    }
+    return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+# --- Auth dependency ---
+async def get_current_user(request: Request) -> dict:
+    token = request.cookies.get("access_token")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        user["_id"] = str(user["_id"])
+        user.pop("password_hash", None)
+        return user
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except pyjwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+async def require_admin_or_employer(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") not in ["admin", "employer"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    return user
+
+def serialize_doc(doc: dict) -> dict:
+    if doc is None:
+        return None
+    result = {}
+    for k, v in doc.items():
+        if k == "_id":
+            result["id"] = str(v)
+        elif isinstance(v, ObjectId):
+            result[k] = str(v)
+        elif isinstance(v, datetime):
+            result[k] = v.isoformat()
+        elif isinstance(v, list):
+            result[k] = [serialize_doc(i) if isinstance(i, dict) else str(i) if isinstance(i, ObjectId) else i for i in v]
+        elif isinstance(v, dict):
+            result[k] = serialize_doc(v)
+        else:
+            result[k] = v
+    return result
+
+# --- App setup ---
+app = FastAPI(title="EduTech LMS API")
 api_router = APIRouter(prefix="/api")
-
-
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-class StatusCheckCreate(BaseModel):
-    client_name: str
-
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
-
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
-
-# Include the router in the main app
-app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=[FRONTEND_URL, "http://localhost:3000"],
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# ========================
+# MODELS
+# ========================
+class UserCreate(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: str = "student"
+    branch_id: Optional[str] = None
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+class BranchCreate(BaseModel):
+    name: str
+    location: str
+
+class CourseCreate(BaseModel):
+    name: str
+    category: str
+    branch_id: str
+    base_fee: float
+    teacher_id: Optional[str] = None
+
+class EnquiryCreate(BaseModel):
+    student_name: str
+    email: str
+    phone: str
+    courses: List[str] = []
+    stage: str = "new"
+    source: str = "manual"
+    notes: str = ""
+
+class StageUpdate(BaseModel):
+    stage: str
+
+class ScheduleCreate(BaseModel):
+    course_id: str
+    teacher_id: str
+    room_id: str
+    branch_id: str
+    start_time: datetime
+    end_time: datetime
+    title: str = ""
+
+class BatchCreate(BaseModel):
+    name: str
+    branch_id: str
+    course_id: str
+    teacher_id: str
+    start_time: str
+    end_time: str
+    days: List[str] = []
+
+class FeeCalculate(BaseModel):
+    student_id: str
+    student_name: str
+    course_id: str
+    course_name: str
+    base_fee: float
+    discount: float = 0
+
+class StudentCreate(BaseModel):
+    name: str
+    email: str
+    phone: str
+    branch_id: Optional[str] = None
+    course_ids: List[str] = []
+    dob: Optional[str] = None
+    address: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+
+class StudentUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    branch_id: Optional[str] = None
+    course_ids: Optional[List[str]] = None
+    dob: Optional[str] = None
+    address: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+    notes: Optional[str] = None
+    syllabus_percentage: Optional[float] = None
+
+class StatusUpdate(BaseModel):
+    status: str
+
+class OnboardStudent(BaseModel):
+    batch_id: str
+
+class AttendanceMark(BaseModel):
+    session_id: str
+    student_id: str
+    status: str
+
+class PaymentUpdate(BaseModel):
+    amount: float
+
+# ========================
+# AUTH ROUTES
+# ========================
+auth_router = APIRouter(prefix="/auth", tags=["auth"])
+
+@auth_router.post("/register")
+async def register(data: UserCreate, response: Response):
+    email = data.email.lower()
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    password_hash = hash_password(data.password)
+    user_doc = {
+        "name": data.name, "email": email, "password_hash": password_hash,
+        "role": data.role, "branch_id": data.branch_id,
+        "created_at": datetime.now(timezone.utc),
+    }
+    result = await db.users.insert_one(user_doc)
+    user_id = str(result.inserted_id)
+    access_token = create_access_token(user_id, email)
+    refresh_token = create_refresh_token(user_id)
+    response.set_cookie("access_token", access_token, httponly=True, secure=False, samesite="lax", max_age=28800)
+    response.set_cookie("refresh_token", refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800)
+    return {"id": user_id, "name": data.name, "email": email, "role": data.role}
+
+@auth_router.post("/login")
+async def login(data: UserLogin, response: Response):
+    email = data.email.lower()
+    user = await db.users.find_one({"email": email})
+    if not user or not verify_password(data.password, user.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    user_id = str(user["_id"])
+    access_token = create_access_token(user_id, email)
+    refresh_token = create_refresh_token(user_id)
+    response.set_cookie("access_token", access_token, httponly=True, secure=False, samesite="lax", max_age=28800)
+    response.set_cookie("refresh_token", refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800)
+    return {"id": user_id, "name": user.get("name"), "email": email, "role": user.get("role", "student")}
+
+@auth_router.post("/logout")
+async def logout(response: Response):
+    response.delete_cookie("access_token")
+    response.delete_cookie("refresh_token")
+    return {"message": "Logged out"}
+
+@auth_router.get("/me")
+async def me(user: dict = Depends(get_current_user)):
+    return user
+
+@auth_router.post("/refresh")
+async def refresh(request: Request, response: Response):
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="No refresh token")
+    try:
+        payload = pyjwt.decode(refresh_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        user_id = payload["sub"]
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        new_access = create_access_token(user_id, user["email"])
+        response.set_cookie("access_token", new_access, httponly=True, secure=False, samesite="lax", max_age=28800)
+        return {"message": "Token refreshed"}
+    except pyjwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+# ========================
+# USERS ROUTES
+# ========================
+users_router = APIRouter(prefix="/users", tags=["users"])
+
+@users_router.get("")
+async def list_users(user: dict = Depends(require_admin)):
+    users = await db.users.find({}, {"password_hash": 0}).to_list(1000)
+    return [serialize_doc(u) for u in users]
+
+@users_router.post("")
+async def create_user(data: UserCreate, user: dict = Depends(require_admin)):
+    email = data.email.lower()
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user_doc = {
+        "name": data.name, "email": email,
+        "password_hash": hash_password(data.password),
+        "role": data.role, "branch_id": data.branch_id,
+        "created_at": datetime.now(timezone.utc),
+    }
+    result = await db.users.insert_one(user_doc)
+    return {"id": str(result.inserted_id), "name": data.name, "email": email, "role": data.role}
+
+@users_router.delete("/{user_id}")
+async def delete_user(user_id: str, user: dict = Depends(require_admin)):
+    await db.users.delete_one({"_id": ObjectId(user_id)})
+    return {"message": "User deleted"}
+
+# ========================
+# BRANCHES ROUTES
+# ========================
+branches_router = APIRouter(prefix="/branches", tags=["branches"])
+
+@branches_router.get("")
+async def list_branches(user: dict = Depends(get_current_user)):
+    branches = await db.branches.find().to_list(1000)
+    return [serialize_doc(b) for b in branches]
+
+@branches_router.post("")
+async def create_branch(data: BranchCreate, user: dict = Depends(require_admin)):
+    doc = {"name": data.name, "location": data.location, "created_at": datetime.now(timezone.utc)}
+    result = await db.branches.insert_one(doc)
+    return serialize_doc({**doc, "_id": result.inserted_id})
+
+@branches_router.put("/{branch_id}")
+async def update_branch(branch_id: str, data: BranchCreate, user: dict = Depends(require_admin)):
+    await db.branches.update_one({"_id": ObjectId(branch_id)}, {"$set": {"name": data.name, "location": data.location}})
+    return serialize_doc(await db.branches.find_one({"_id": ObjectId(branch_id)}))
+
+@branches_router.delete("/{branch_id}")
+async def delete_branch(branch_id: str, user: dict = Depends(require_admin)):
+    await db.branches.delete_one({"_id": ObjectId(branch_id)})
+    return {"message": "Branch deleted"}
+
+# ========================
+# COURSES ROUTES
+# ========================
+courses_router = APIRouter(prefix="/courses", tags=["courses"])
+
+@courses_router.get("")
+async def list_courses(user: dict = Depends(get_current_user)):
+    courses = await db.courses.find().to_list(1000)
+    return [serialize_doc(c) for c in courses]
+
+@courses_router.post("")
+async def create_course(data: CourseCreate, user: dict = Depends(require_admin)):
+    doc = {
+        "name": data.name, "category": data.category, "branch_id": data.branch_id,
+        "base_fee": data.base_fee, "teacher_id": data.teacher_id,
+        "created_at": datetime.now(timezone.utc)
+    }
+    result = await db.courses.insert_one(doc)
+    return serialize_doc({**doc, "_id": result.inserted_id})
+
+@courses_router.put("/{course_id}")
+async def update_course(course_id: str, data: CourseCreate, user: dict = Depends(require_admin)):
+    await db.courses.update_one({"_id": ObjectId(course_id)}, {"$set": {
+        "name": data.name, "category": data.category, "branch_id": data.branch_id,
+        "base_fee": data.base_fee, "teacher_id": data.teacher_id
+    }})
+    return serialize_doc(await db.courses.find_one({"_id": ObjectId(course_id)}))
+
+@courses_router.delete("/{course_id}")
+async def delete_course(course_id: str, user: dict = Depends(require_admin)):
+    await db.courses.delete_one({"_id": ObjectId(course_id)})
+    return {"message": "Course deleted"}
+
+# ========================
+# ENQUIRIES (CRM)
+# ========================
+enquiries_router = APIRouter(prefix="/enquiries", tags=["enquiries"])
+
+@enquiries_router.get("")
+async def list_enquiries(user: dict = Depends(get_current_user)):
+    enquiries = await db.enquiries.find().sort("created_at", -1).to_list(1000)
+    return [serialize_doc(e) for e in enquiries]
+
+@enquiries_router.post("")
+async def create_enquiry(data: EnquiryCreate, user: dict = Depends(get_current_user)):
+    doc = {
+        "student_name": data.student_name, "email": data.email, "phone": data.phone,
+        "courses": data.courses, "stage": data.stage, "source": data.source,
+        "notes": data.notes, "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    result = await db.enquiries.insert_one(doc)
+    return serialize_doc({**doc, "_id": result.inserted_id})
+
+@enquiries_router.put("/{enquiry_id}")
+async def update_enquiry(enquiry_id: str, data: EnquiryCreate, user: dict = Depends(get_current_user)):
+    update = {
+        "student_name": data.student_name, "email": data.email, "phone": data.phone,
+        "courses": data.courses, "source": data.source, "notes": data.notes,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    await db.enquiries.update_one({"_id": ObjectId(enquiry_id)}, {"$set": update})
+    return serialize_doc(await db.enquiries.find_one({"_id": ObjectId(enquiry_id)}))
+
+@enquiries_router.patch("/{enquiry_id}/stage")
+async def update_stage(enquiry_id: str, data: StageUpdate, user: dict = Depends(get_current_user)):
+    await db.enquiries.update_one(
+        {"_id": ObjectId(enquiry_id)},
+        {"$set": {"stage": data.stage, "updated_at": datetime.now(timezone.utc)}}
+    )
+    return serialize_doc(await db.enquiries.find_one({"_id": ObjectId(enquiry_id)}))
+
+@enquiries_router.delete("/{enquiry_id}")
+async def delete_enquiry(enquiry_id: str, user: dict = Depends(get_current_user)):
+    await db.enquiries.delete_one({"_id": ObjectId(enquiry_id)})
+    return {"message": "Enquiry deleted"}
+
+# ========================
+# ACADEMIC ROUTES
+# ========================
+academic_router = APIRouter(prefix="/academic", tags=["academic"])
+
+@academic_router.get("/schedule")
+async def list_schedule(user: dict = Depends(get_current_user)):
+    sessions = await db.class_sessions.find().sort("start_time", 1).to_list(1000)
+    return [serialize_doc(s) for s in sessions]
+
+@academic_router.post("/schedule")
+async def create_schedule(data: ScheduleCreate, user: dict = Depends(require_admin)):
+    conflict = await db.class_sessions.find_one({
+        "$and": [
+            {"$or": [{"teacher_id": data.teacher_id}, {"room_id": data.room_id}]},
+            {"start_time": {"$lt": data.end_time}},
+            {"end_time": {"$gt": data.start_time}}
+        ]
+    })
+    if conflict:
+        raise HTTPException(status_code=400, detail="Conflict: Teacher or room is already booked during this time slot")
+    doc = {
+        "course_id": data.course_id, "teacher_id": data.teacher_id,
+        "room_id": data.room_id, "branch_id": data.branch_id,
+        "start_time": data.start_time, "end_time": data.end_time,
+        "title": data.title, "created_at": datetime.now(timezone.utc)
+    }
+    result = await db.class_sessions.insert_one(doc)
+    return serialize_doc({**doc, "_id": result.inserted_id})
+
+@academic_router.delete("/schedule/{session_id}")
+async def delete_schedule(session_id: str, user: dict = Depends(require_admin)):
+    await db.class_sessions.delete_one({"_id": ObjectId(session_id)})
+    return {"message": "Session deleted"}
+
+@academic_router.get("/batches")
+async def list_batches(user: dict = Depends(get_current_user)):
+    batches = await db.batches.find().to_list(1000)
+    return [serialize_doc(b) for b in batches]
+
+@academic_router.post("/batches")
+async def create_batch(data: BatchCreate, user: dict = Depends(require_admin)):
+    doc = {
+        "name": data.name, "branch_id": data.branch_id, "course_id": data.course_id,
+        "teacher_id": data.teacher_id, "start_time": data.start_time,
+        "end_time": data.end_time, "days": data.days,
+        "created_at": datetime.now(timezone.utc)
+    }
+    result = await db.batches.insert_one(doc)
+    return serialize_doc({**doc, "_id": result.inserted_id})
+
+@academic_router.delete("/batches/{batch_id}")
+async def delete_batch(batch_id: str, user: dict = Depends(require_admin)):
+    await db.batches.delete_one({"_id": ObjectId(batch_id)})
+    return {"message": "Batch deleted"}
+
+# ========================
+# FINANCE ROUTES
+# ========================
+finance_router = APIRouter(prefix="/finance", tags=["finance"])
+
+@finance_router.get("/invoices")
+async def list_invoices(user: dict = Depends(get_current_user)):
+    invoices = await db.invoices.find().sort("created_at", -1).to_list(1000)
+    return [serialize_doc(i) for i in invoices]
+
+@finance_router.post("/calculate")
+async def calculate_fee(data: FeeCalculate, user: dict = Depends(require_admin)):
+    GST_RATE = 0.18
+    gst_amount = round(data.base_fee * GST_RATE, 2)
+    total = round((data.base_fee + gst_amount) - data.discount, 2)
+    doc = {
+        "student_id": data.student_id, "student_name": data.student_name,
+        "course_id": data.course_id, "course_name": data.course_name,
+        "base_fee": data.base_fee, "gst_amount": gst_amount,
+        "discount": data.discount, "total": total,
+        "paid_amount": 0, "balance": total,
+        "status": "pending", "created_at": datetime.now(timezone.utc),
+    }
+    result = await db.invoices.insert_one(doc)
+    return serialize_doc({**doc, "_id": result.inserted_id})
+
+@finance_router.patch("/invoices/{invoice_id}/pay")
+async def mark_paid(invoice_id: str, data: PaymentUpdate, user: dict = Depends(require_admin)):
+    invoice = await db.invoices.find_one({"_id": ObjectId(invoice_id)})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    new_paid = invoice.get("paid_amount", 0) + data.amount
+    new_balance = max(0, invoice.get("total", 0) - new_paid)
+    new_status = "paid" if new_balance <= 0 else "partial"
+    await db.invoices.update_one(
+        {"_id": ObjectId(invoice_id)},
+        {"$set": {"paid_amount": new_paid, "balance": new_balance, "status": new_status}}
+    )
+    return serialize_doc(await db.invoices.find_one({"_id": ObjectId(invoice_id)}))
+
+@finance_router.post("/nudge/{student_id}")
+async def send_nudge(student_id: str, user: dict = Depends(require_admin)):
+    invoices = await db.invoices.find({"student_id": student_id, "balance": {"$gt": 0}}).to_list(100)
+    if not invoices:
+        raise HTTPException(status_code=404, detail="No outstanding invoices found")
+    total_balance = sum(i.get("balance", 0) for i in invoices)
+    await db.nudge_logs.insert_one({
+        "student_id": student_id, "invoice_count": len(invoices),
+        "total_balance": total_balance, "sent_at": datetime.now(timezone.utc),
+        "sent_by": user.get("id") or user.get("_id")
+    })
+    return {"message": f"Payment reminder sent. Outstanding: ₹{total_balance:.2f}"}
+
+# ========================
+# DASHBOARD ROUTES
+# ========================
+dashboard_router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+@dashboard_router.get("/stats")
+async def get_stats(branch_id: Optional[str] = None, user: dict = Depends(require_admin_or_employer)):
+    student_filter = {}
+    if branch_id:
+        student_filter["branch_id"] = branch_id
+
+    invoices = await db.invoices.find({}).to_list(10000)
+    total_revenue = sum(i.get("paid_amount", 0) for i in invoices)
+    outstanding_balance = sum(i.get("balance", 0) for i in invoices)
+
+    total_students = await db.students.count_documents(student_filter)
+    active_students = await db.students.count_documents({**student_filter, "status": "active"})
+
+    total_enquiries = await db.enquiries.count_documents({})
+    converted_enquiries = await db.enquiries.count_documents({"stage": "converted"})
+    conversion_rate = round((converted_enquiries / total_enquiries * 100) if total_enquiries > 0 else 0, 1)
+
+    # Revenue by branch
+    branches = await db.branches.find().to_list(100)
+    revenue_by_branch = []
+    for branch in branches:
+        b_id = str(branch["_id"])
+        b_students = await db.students.find({"branch_id": b_id}, {"_id": 1}).to_list(1000)
+        s_ids = [str(s["_id"]) for s in b_students]
+        b_invoices = await db.invoices.find({"student_id": {"$in": s_ids}}).to_list(1000) if s_ids else []
+        revenue_by_branch.append({"branch": branch.get("name"), "revenue": sum(i.get("paid_amount", 0) for i in b_invoices)})
+
+    # Enrolments by course category
+    courses = await db.courses.find().to_list(1000)
+    category_map = {}
+    for c in courses:
+        cat = c.get("category", "Other")
+        category_map[cat] = category_map.get(cat, 0) + 1
+    enrolments_by_category = [{"name": k, "value": v} for k, v in category_map.items()]
+
+    # Monthly trends (last 6 months)
+    monthly_trends = []
+    now = datetime.now(timezone.utc)
+    for i in range(5, -1, -1):
+        month_start = now.replace(day=1) - timedelta(days=i * 30)
+        month_end = month_start + timedelta(days=30)
+        count = await db.students.count_documents({"created_at": {"$gte": month_start, "$lt": month_end}})
+        monthly_trends.append({"month": month_start.strftime("%b"), "enrolments": count})
+
+    return {
+        "total_revenue": total_revenue, "outstanding_balance": outstanding_balance,
+        "total_students": total_students, "active_students": active_students,
+        "conversion_rate": conversion_rate, "total_enquiries": total_enquiries,
+        "revenue_by_branch": revenue_by_branch, "enrolments_by_category": enrolments_by_category,
+        "monthly_trends": monthly_trends,
+    }
+
+@dashboard_router.post("/weekly-summary")
+async def generate_weekly_summary(user: dict = Depends(require_admin_or_employer)):
+    invoices = await db.invoices.find().to_list(10000)
+    total_revenue = sum(i.get("paid_amount", 0) for i in invoices)
+    outstanding = sum(i.get("balance", 0) for i in invoices)
+    total_students = await db.students.count_documents({})
+    new_enquiries = await db.enquiries.count_documents({
+        "created_at": {"$gte": datetime.now(timezone.utc) - timedelta(days=7)}
+    })
+    total_enq = await db.enquiries.count_documents({})
+    converted = await db.enquiries.count_documents({"stage": "converted"})
+    stats = {
+        "total_revenue_INR": total_revenue, "outstanding_balance_INR": outstanding,
+        "total_students": total_students, "new_enquiries_this_week": new_enquiries,
+        "conversion_rate": f"{round((converted/total_enq*100) if total_enq > 0 else 0, 1)}%"
+    }
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"weekly-summary-{uuid.uuid4()}",
+            system_message="You are an educational institute analytics assistant. Generate professional, concise weekly summaries in 3-4 bullet points using rupee (₹) for currency. Be specific with numbers. Keep under 150 words."
+        ).with_model("gemini", "gemini-3-flash-preview")
+        response = await chat.send_message(UserMessage(
+            text=f"Generate a weekly performance summary for an educational institute with these stats: {stats}. Include key insights and one actionable recommendation."
+        ))
+        return {"summary": response, "stats": stats}
+    except Exception as e:
+        logger.error(f"AI summary error: {e}")
+        return {
+            "summary": f"• Revenue collected this period: ₹{total_revenue:,.0f}\n• Outstanding balance: ₹{outstanding:,.0f}\n• {total_students} students enrolled, {new_enquiries} new enquiries this week\n• Conversion rate: {stats['conversion_rate']} — consider follow-up calls to improve.",
+            "stats": stats
+        }
+
+# ========================
+# STUDENTS ROUTES
+# ========================
+students_router = APIRouter(prefix="/students", tags=["students"])
+
+@students_router.get("")
+async def list_students(user: dict = Depends(get_current_user)):
+    students = await db.students.find().sort("created_at", -1).to_list(1000)
+    return [serialize_doc(s) for s in students]
+
+@students_router.post("")
+async def create_student(data: StudentCreate, user: dict = Depends(require_admin)):
+    doc = {
+        "name": data.name, "email": data.email, "phone": data.phone,
+        "branch_id": data.branch_id, "course_ids": data.course_ids,
+        "dob": data.dob, "address": data.address,
+        "guardian_name": data.guardian_name, "guardian_phone": data.guardian_phone,
+        "status": "onboarding", "syllabus_percentage": 0,
+        "batch_id": None, "notes": "",
+        "enrollment_date": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(timezone.utc),
+    }
+    result = await db.students.insert_one(doc)
+    return serialize_doc({**doc, "_id": result.inserted_id})
+
+@students_router.get("/{student_id}")
+async def get_student(student_id: str, user: dict = Depends(get_current_user)):
+    student = await db.students.find_one({"_id": ObjectId(student_id)})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    return serialize_doc(student)
+
+@students_router.put("/{student_id}")
+async def update_student(student_id: str, data: StudentUpdate, user: dict = Depends(require_admin)):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    await db.students.update_one({"_id": ObjectId(student_id)}, {"$set": update})
+    return serialize_doc(await db.students.find_one({"_id": ObjectId(student_id)}))
+
+@students_router.patch("/{student_id}/status")
+async def update_student_status(student_id: str, data: StatusUpdate, user: dict = Depends(require_admin)):
+    await db.students.update_one({"_id": ObjectId(student_id)}, {"$set": {"status": data.status}})
+    return serialize_doc(await db.students.find_one({"_id": ObjectId(student_id)}))
+
+@students_router.post("/{student_id}/onboard")
+async def onboard_student(student_id: str, data: OnboardStudent, user: dict = Depends(require_admin)):
+    await db.students.update_one(
+        {"_id": ObjectId(student_id)},
+        {"$set": {"status": "active", "batch_id": data.batch_id}}
+    )
+    return serialize_doc(await db.students.find_one({"_id": ObjectId(student_id)}))
+
+@students_router.post("/{student_id}/complete")
+async def complete_student(student_id: str, user: dict = Depends(require_admin)):
+    await db.students.update_one(
+        {"_id": ObjectId(student_id)},
+        {"$set": {"status": "completed", "syllabus_percentage": 100}}
+    )
+    student = await db.students.find_one({"_id": ObjectId(student_id)})
+    cert = {
+        "student_id": student_id, "student_name": student.get("name"),
+        "issued_date": datetime.now(timezone.utc).isoformat(),
+        "certificate_id": f"CERT-{uuid.uuid4().hex[:8].upper()}",
+    }
+    await db.certificates.insert_one(cert)
+    cert.pop("_id", None)
+    return {"message": "Student completed and certificate generated", "certificate": cert}
+
+@students_router.post("/{student_id}/promote")
+async def promote_student(student_id: str, user: dict = Depends(require_admin)):
+    student = await db.students.find_one({"_id": ObjectId(student_id)})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    enquiry_doc = {
+        "student_name": student.get("name"), "email": student.get("email"),
+        "phone": student.get("phone"), "courses": student.get("course_ids", []),
+        "stage": "new", "source": "promotion",
+        "notes": f"Re-enrolment lead from previous year student",
+        "created_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc),
+    }
+    result = await db.enquiries.insert_one(enquiry_doc)
+    return {"message": "New CRM lead created for next year", "enquiry_id": str(result.inserted_id)}
+
+# ========================
+# TEACHER ROUTES
+# ========================
+teacher_router = APIRouter(prefix="/teacher", tags=["teacher"])
+
+@teacher_router.get("/sessions")
+async def get_teacher_sessions(user: dict = Depends(get_current_user)):
+    teacher_id = user.get("_id") or user.get("id")
+    if user.get("role") == "admin":
+        sessions = await db.class_sessions.find().sort("start_time", 1).to_list(100)
+    else:
+        sessions = await db.class_sessions.find({"teacher_id": teacher_id}).sort("start_time", 1).to_list(100)
+    return [serialize_doc(s) for s in sessions]
+
+@teacher_router.get("/students")
+async def get_teacher_students(user: dict = Depends(get_current_user)):
+    students = await db.students.find({"status": "active"}).to_list(1000)
+    return [serialize_doc(s) for s in students]
+
+@teacher_router.get("/qr/{session_id}")
+async def get_session_qr(session_id: str, user: dict = Depends(get_current_user)):
+    qr_data = f"EDUTECH-SESSION-{session_id}"
+    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={qr_data}&bgcolor=ffffff&color=002EB8"
+    return {"qr_url": qr_url, "session_id": session_id, "qr_data": qr_data}
+
+@teacher_router.post("/attendance")
+async def mark_attendance(data: AttendanceMark, user: dict = Depends(get_current_user)):
+    existing = await db.attendance.find_one({"session_id": data.session_id, "student_id": data.student_id})
+    if existing:
+        await db.attendance.update_one(
+            {"session_id": data.session_id, "student_id": data.student_id},
+            {"$set": {"status": data.status, "marked_at": datetime.now(timezone.utc)}}
+        )
+    else:
+        student = await db.students.find_one({"_id": ObjectId(data.student_id)})
+        student_name = student.get("name", "Unknown") if student else "Unknown"
+        await db.attendance.insert_one({
+            "session_id": data.session_id, "student_id": data.student_id,
+            "student_name": student_name, "status": data.status,
+            "marked_at": datetime.now(timezone.utc),
+        })
+    if data.status == "present":
+        total = await db.attendance.count_documents({"student_id": data.student_id})
+        present = await db.attendance.count_documents({"student_id": data.student_id, "status": "present"})
+        pct = round((present / total * 100) if total > 0 else 0, 1)
+        await db.students.update_one({"_id": ObjectId(data.student_id)}, {"$set": {"syllabus_percentage": pct}})
+    return {"message": f"Attendance marked: {data.status}"}
+
+@teacher_router.get("/attendance/{session_id}")
+async def get_session_attendance(session_id: str, user: dict = Depends(get_current_user)):
+    attendance = await db.attendance.find({"session_id": session_id}).to_list(1000)
+    return [serialize_doc(a) for a in attendance]
+
+# ========================
+# INCLUDE ROUTERS
+# ========================
+api_router.include_router(auth_router)
+api_router.include_router(users_router)
+api_router.include_router(branches_router)
+api_router.include_router(courses_router)
+api_router.include_router(enquiries_router)
+api_router.include_router(academic_router)
+api_router.include_router(finance_router)
+api_router.include_router(dashboard_router)
+api_router.include_router(students_router)
+api_router.include_router(teacher_router)
+app.include_router(api_router)
+
+# ========================
+# STARTUP
+# ========================
+@app.on_event("startup")
+async def startup():
+    await db.users.create_index("email", unique=True)
+    await db.students.create_index("email")
+    await db.enquiries.create_index("stage")
+
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@edutech.com")
+    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+    existing = await db.users.find_one({"email": admin_email})
+    if existing is None:
+        await db.users.insert_one({
+            "name": "Admin", "email": admin_email,
+            "password_hash": hash_password(admin_password),
+            "role": "admin", "created_at": datetime.now(timezone.utc),
+        })
+        logger.info(f"Admin seeded: {admin_email}")
+    elif not verify_password(admin_password, existing.get("password_hash", "")):
+        await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
+
+    branch_count = await db.branches.count_documents({})
+    if branch_count == 0:
+        branches = [
+            {"name": "Pune Branch", "location": "Pune, Maharashtra", "created_at": datetime.now(timezone.utc)},
+            {"name": "Mumbai Branch", "location": "Mumbai, Maharashtra", "created_at": datetime.now(timezone.utc)},
+            {"name": "Nashik Branch", "location": "Nashik, Maharashtra", "created_at": datetime.now(timezone.utc)},
+        ]
+        await db.branches.insert_many(branches)
+        inserted_branches = await db.branches.find().to_list(10)
+        branch_ids = [str(b["_id"]) for b in inserted_branches]
+        courses_data = [
+            {"name": "12th HSC Science", "category": "HSC", "branch_id": branch_ids[0], "base_fee": 25000, "created_at": datetime.now(timezone.utc)},
+            {"name": "CET Preparation", "category": "Competitive", "branch_id": branch_ids[0], "base_fee": 35000, "created_at": datetime.now(timezone.utc)},
+            {"name": "JEE Main", "category": "Engineering", "branch_id": branch_ids[1], "base_fee": 55000, "created_at": datetime.now(timezone.utc)},
+            {"name": "NEET Preparation", "category": "Medical", "branch_id": branch_ids[1], "base_fee": 60000, "created_at": datetime.now(timezone.utc)},
+            {"name": "CA Foundation", "category": "Commerce", "branch_id": branch_ids[2], "base_fee": 40000, "created_at": datetime.now(timezone.utc)},
+        ]
+        await db.courses.insert_many(courses_data)
+        await db.enquiries.insert_many([
+            {"student_name": "Arjun Sharma", "email": "arjun@email.com", "phone": "9876543210", "courses": [], "stage": "new", "source": "website", "notes": "Interested in JEE preparation", "created_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)},
+            {"student_name": "Priya Patel", "email": "priya@email.com", "phone": "9876543211", "courses": [], "stage": "followup", "source": "whatsapp", "notes": "Called back, very interested in HSC batch", "created_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)},
+            {"student_name": "Rahul Kumar", "email": "rahul@email.com", "phone": "9876543212", "courses": [], "stage": "converted", "source": "manual", "notes": "Enrolled in CET batch successfully", "created_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)},
+            {"student_name": "Sneha Joshi", "email": "sneha@email.com", "phone": "9876543213", "courses": [], "stage": "missed", "source": "google_forms", "notes": "Did not respond to follow-up calls", "created_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)},
+            {"student_name": "Dev Kapoor", "email": "dev@email.com", "phone": "9876543214", "courses": [], "stage": "declined", "source": "website", "notes": "Opted for another institute", "created_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)},
+        ])
+        students_data = [
+            {"name": "Rahul Kumar", "email": "rahul.s@email.com", "phone": "9876543212", "branch_id": branch_ids[0], "course_ids": [], "status": "active", "syllabus_percentage": 65, "batch_id": None, "notes": "", "enrollment_date": datetime.now(timezone.utc).isoformat(), "created_at": datetime.now(timezone.utc)},
+            {"name": "Anjali Singh", "email": "anjali@email.com", "phone": "9876543215", "branch_id": branch_ids[1], "course_ids": [], "status": "onboarding", "syllabus_percentage": 0, "batch_id": None, "notes": "", "enrollment_date": datetime.now(timezone.utc).isoformat(), "created_at": datetime.now(timezone.utc)},
+            {"name": "Vikram Mehta", "email": "vikram@email.com", "phone": "9876543216", "branch_id": branch_ids[0], "course_ids": [], "status": "completed", "syllabus_percentage": 100, "batch_id": None, "notes": "", "enrollment_date": datetime.now(timezone.utc).isoformat(), "created_at": datetime.now(timezone.utc)},
+            {"name": "Meera Nair", "email": "meera@email.com", "phone": "9876543217", "branch_id": branch_ids[2], "course_ids": [], "status": "active", "syllabus_percentage": 42, "batch_id": None, "notes": "", "enrollment_date": datetime.now(timezone.utc).isoformat(), "created_at": datetime.now(timezone.utc)},
+        ]
+        await db.students.insert_many(students_data)
+        logger.info("Sample data seeded")
 
 @app.on_event("shutdown")
-async def shutdown_db_client():
+async def shutdown():
     client.close()
