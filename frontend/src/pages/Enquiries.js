@@ -113,8 +113,16 @@ export default function Enquiries() {
     const prev = [...enquiries];
     setEnquiries((enqs) => enqs.map((eq) => eq.id === draggingId ? { ...eq, stage } : eq));
     try {
-      await axios.patch(`${API}/api/enquiries/${draggingId}/stage`, { stage }, { withCredentials: true });
-      toast.success("Stage updated");
+      const res = await axios.patch(`${API}/api/enquiries/${draggingId}/stage`, { stage }, { withCredentials: true });
+      if (stage === "converted") {
+        if (res.data.student_created) {
+          toast.success("Enquiry converted! Student record created in Students module.");
+        } else {
+          toast.success("Enquiry converted. Student record already exists.");
+        }
+      } else {
+        toast.success("Stage updated");
+      }
     } catch {
       setEnquiries(prev);
       toast.error("Failed to update stage");
@@ -168,7 +176,15 @@ export default function Enquiries() {
       const res = await axios.put(`${API}/api/enquiries/${editEnquiry.id}`, editForm, { withCredentials: true });
       setEnquiries((prev) => prev.map((eq) => eq.id === editEnquiry.id ? res.data : eq));
       setEditEnquiry(null);
-      toast.success("Enquiry updated!");
+      if (editForm.stage === "converted") {
+        if (res.data.student_created) {
+          toast.success("Enquiry updated! Student record created in Students module.");
+        } else {
+          toast.success("Enquiry updated. Student record already exists.");
+        }
+      } else {
+        toast.success("Enquiry updated!");
+      }
     } catch {
       toast.error("Failed to update enquiry");
     } finally { setEditSaving(false); }

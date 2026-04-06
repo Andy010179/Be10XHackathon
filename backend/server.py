@@ -127,6 +127,38 @@ async def get_razorpay_keys():
         return settings["key_id"], settings["key_secret"]
     return RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
 
+# --- Auto-create student from enquiry on conversion ---
+async def auto_create_student_from_enquiry(enquiry: dict):
+    """Creates a student record from an enquiry. Returns (created: bool, student_id: str)."""
+    email = enquiry.get("email", "").lower()
+    if not email:
+        return False, ""
+    existing = await db.students.find_one({"email": email})
+    if existing:
+        return False, str(existing["_id"])
+    student_doc = {
+        "name": enquiry.get("student_name", ""),
+        "email": email,
+        "phone": enquiry.get("phone", ""),
+        "branch_id": None,
+        "course_ids": enquiry.get("courses", []),
+        "dob": None,
+        "address": enquiry.get("city", ""),
+        "guardian_name": "",
+        "guardian_phone": "",
+        "status": "onboarding",
+        "syllabus_percentage": 0,
+        "batch_id": None,
+        "batch_ids": [],
+        "notes": enquiry.get("notes", ""),
+        "source": enquiry.get("source", "crm"),
+        "enquiry_id": str(enquiry["_id"]),
+        "enrollment_date": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(timezone.utc),
+    }
+    res = await db.students.insert_one(student_doc)
+    return True, str(res.inserted_id)
+
 # --- Email helper (Resend) ---
 async def send_nudge_email(recipient_email: str, student_name: str, total_balance: float) -> bool:
     if not RESEND_API_KEY:
@@ -533,7 +565,16 @@ async def update_enquiry(enquiry_id: str, data: EnquiryCreate, user: dict = Depe
         "updated_at": datetime.now(timezone.utc),
     }
     await db.enquiries.update_one({"_id": ObjectId(enquiry_id)}, {"$set": update})
-    return serialize_doc(await db.enquiries.find_one({"_id": ObjectId(enquiry_id)}))
+    enquiry = await db.enquiries.find_one({"_id": ObjectId(enquiry_id)})
+    result = serialize_doc(enquiry)
+
+    # Auto-create student if stage was set to converted via edit
+    if data.stage == "converted":
+        created, student_id = await auto_create_student_from_enquiry(enquiry)
+        result["student_created"] = created
+        result["student_id"] = student_id
+
+    return result
 
 @enquiries_router.patch("/{enquiry_id}/stage")
 async def update_stage(enquiry_id: str, data: StageUpdate, user: dict = Depends(get_current_user)):
@@ -541,7 +582,16 @@ async def update_stage(enquiry_id: str, data: StageUpdate, user: dict = Depends(
         {"_id": ObjectId(enquiry_id)},
         {"$set": {"stage": data.stage, "updated_at": datetime.now(timezone.utc)}}
     )
-    return serialize_doc(await db.enquiries.find_one({"_id": ObjectId(enquiry_id)}))
+    enquiry = await db.enquiries.find_one({"_id": ObjectId(enquiry_id)})
+    result = serialize_doc(enquiry)
+
+    # Auto-create student record when enquiry is converted
+    if data.stage == "converted":
+        created, student_id = await auto_create_student_from_enquiry(enquiry)
+        result["student_created"] = created
+        result["student_id"] = student_id
+
+    return result
 
 @enquiries_router.delete("/{enquiry_id}")
 async def delete_enquiry(enquiry_id: str, user: dict = Depends(get_current_user)):
