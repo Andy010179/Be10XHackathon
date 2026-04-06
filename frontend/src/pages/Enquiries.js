@@ -50,7 +50,9 @@ function parseEnquiryCSV(text) {
       notes: cols[notesIdx] || "",
     };
   }).filter((r) => r.student_name);
-}({ enquiry, onDragStart, onDelete, onEdit }) {
+}
+
+function EnquiryCard({ enquiry, onDragStart, onDelete, onEdit }) {
   return (
     <div
       draggable

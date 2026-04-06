@@ -220,7 +220,9 @@ export default function Dashboard() {
                     );
                   }}
                 />
-                <Bar dataKey="revenue" radius={[4, 4, 0, 0]} shape={<ClickableBar fill="#002EB8" />}>
+                <Bar dataKey="revenue" radius={[4, 4, 0, 0]} shape={<ClickableBar fill="#002EB8" />}
+                  onClick={(data) => { if (data?.branch_id) fetchBranchDetail(data.branch_id, data.branch); }}
+                >
                   {(stats?.revenue_by_branch || []).map((entry, i) => (
                     <Cell
                       key={i}
