@@ -78,14 +78,26 @@ https://skill-academy-77.preview.emergentagent.com
 ## Date Created
 February 2026
 
-## Backlog / Next Items
-- P0: Email notifications for nudges (Resend/SendGrid)
-- P0: Employer user creation UI
-- P1: Student login portal
-- P1: Course management UI (CRUD for courses)
-- P1: Full attendance reports per student
-- P2: Razorpay/Stripe payment integration
-- P2: Google Forms / WhatsApp webhook sync
-- P2: Certificate download as PDF
-- P2: Advanced analytics (cohort analysis)
-- P3: Multi-tenant support (institute-level isolation)
+## What's Been Implemented
+
+### Phase 1 (MVP — Feb 2026)
+- JWT Auth, CRM Kanban, Academic Hub (conflict checker), Finance (GST), Dashboard (charts + AI), Teacher Attendance (QR), Student Lifecycle
+
+### Phase 2 (Feb 2026)
+- **Course Management UI** — Full CRUD with card grid, category badges, edit/delete, GST preview
+- **User Management** — Create Employer/Teacher/Student accounts with role selector, branch assignment, role stat cards
+- **Email Nudge (Resend)** — Integrated Resend library; sends fee reminder HTML emails when RESEND_API_KEY is set; graceful fallback with toast when not configured. Sender: andykool010179@gmail.com
+- **Razorpay Payments** — Full integration with mock mode (when no keys); real Razorpay checkout when keys provided; payment verify updates invoice status; mock payment modal for demo
+- **Student Self-Service Portal** — 5 tabs: Profile (editable), Courses & Attendance, My Fees, Certificate Download (HTML), Fee Query form with email notification to admin
+
+## Pending Integrations
+- Add RESEND_API_KEY to backend/.env for live email nudges (domain verification required for andykool010179@gmail.com)
+- Add RAZORPAY_KEY_ID + RAZORPAY_KEY_SECRET to backend/.env for live payments
+
+## Prioritized Backlog
+- P0: WhatsApp webhook for CRM lead auto-capture
+- P0: PDF certificate generation (instead of HTML)
+- P1: Student fee payment from portal (Razorpay in student portal)
+- P1: Attendance reports per batch
+- P2: Multi-tenant institute isolation
+- P2: Parent login portal
