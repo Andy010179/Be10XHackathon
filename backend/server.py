@@ -926,11 +926,27 @@ async def get_batch_attendance_report(batch_id: str = None, user: dict = Depends
         students = await db.students.find({"batch_id": batch_id}).to_list(1000)
     else:
         students = await db.students.find({"status": {"$in": ["active", "completed", "onboarding"]}}).to_list(1000)
+
+    # Single query for all attendance — avoids N+1 problem
+    student_ids = [str(s["_id"]) for s in students]
+    all_attendance = await db.attendance.find({"student_id": {"$in": student_ids}}).to_list(10000)
+
+    # Aggregate in memory
+    attendance_map = {}
+    for att in all_attendance:
+        sid = att.get("student_id")
+        if sid not in attendance_map:
+            attendance_map[sid] = {"total": 0, "present": 0}
+        attendance_map[sid]["total"] += 1
+        if att.get("status") == "present":
+            attendance_map[sid]["present"] += 1
+
     report = []
     for student in students:
         sid = str(student["_id"])
-        total = await db.attendance.count_documents({"student_id": sid})
-        present = await db.attendance.count_documents({"student_id": sid, "status": "present"})
+        stats = attendance_map.get(sid, {"total": 0, "present": 0})
+        total = stats["total"]
+        present = stats["present"]
         pct = round((present / total * 100) if total > 0 else 0, 1)
         report.append({
             "student_id": sid,
