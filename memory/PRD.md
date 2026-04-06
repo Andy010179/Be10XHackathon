@@ -111,3 +111,13 @@ February 2026
 - **Lifecycle Actions**: Multi-batch checkbox select (batch_ids array) when onboarding students
 - **CRM Pipeline**: Edit per enquiry card via pencil icon (hover), full edit modal with all fields
 - **New Enquiry**: City/Location field with map-pin icon, shown on kanban cards
+
+
+### Phase 5 (Feb 2026) — CRM Enhancements + Dashboard Drill-down + Bulk Promotion
+- **CRM Pipeline**: Bulk CSV import for enquiries with all 7 fields (name, email, phone, city, source, stage, notes) + Template download
+- **CRM Pipeline**: Enquiry form focus-loss fixed (FormFields moved to module-level)
+- **CRM Pipeline**: `re-enrollment` source label added to SOURCE_LABELS
+- **Dashboard**: Branch filter now correctly filters ALL KPIs, charts, and monthly trends (invoice-level filtering)
+- **Dashboard**: Revenue by Branch bar chart is clickable → drill-down panel with line-by-line invoice details (student, course, paid, balance, status)
+- **Students**: Multi-select checkboxes + select-all, Status filter dropdown
+- **Students**: Bulk Promotion — select students → Generate Re-enrolment Leads → creates CRM enquiries (source: re-enrollment)

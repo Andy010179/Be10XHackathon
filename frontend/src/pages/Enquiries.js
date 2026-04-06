@@ -16,6 +16,7 @@ const STAGES = [
 const SOURCE_LABELS = {
   manual: "Walk-in", website: "Website", whatsapp: "WhatsApp",
   google_forms: "Google Form", promotion: "Promotion",
+  "re-enrollment": "Re-enrolment",
 };
 
 const emptyForm = { student_name: "", email: "", phone: "", city: "", source: "manual", stage: "new", notes: "" };
