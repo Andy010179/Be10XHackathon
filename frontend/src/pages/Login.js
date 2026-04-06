@@ -67,21 +67,10 @@ export default function Login() {
             Smarter.
           </h1>
           <p className="text-white/70 text-lg max-w-sm">
-            Complete CRM, academic scheduling, finance, and student lifecycle management — all in one platform.
+            Complete Academic scheduling, finance, and student lifecycle management tracking — all in one platform. - Developed by anand.m.kulkarni@gmail.com
           </p>
         </div>
-        <div className="relative z-10 grid grid-cols-3 gap-4">
-          {[
-            { label: "Active Students", value: "2,400+" },
-            { label: "Conversion Rate", value: "68%" },
-            { label: "Branches", value: "12" },
-          ].map((stat) => (
-            <div key={stat.label} className="border border-white/20 rounded-lg p-4">
-              <p className="font-cabinet font-black text-2xl text-[#FFD600]">{stat.value}</p>
-              <p className="text-white/60 text-xs mt-1">{stat.label}</p>
-            </div>
-          ))}
-        </div>
+        <div className="relative z-10" />
       </div>
 
       {/* Right: Login form */}
