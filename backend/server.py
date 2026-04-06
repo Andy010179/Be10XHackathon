@@ -116,9 +116,15 @@ def serialize_doc(doc: dict) -> dict:
 app = FastAPI(title="EduTech LMS API")
 api_router = APIRouter(prefix="/api")
 
+_cors_raw = os.environ.get("CORS_ORIGINS", "")
+if _cors_raw and _cors_raw.strip() != "*":
+    _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+else:
+    _cors_origins = [FRONTEND_URL, "http://localhost:3000"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL, "http://localhost:3000"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -545,7 +551,8 @@ async def get_stats(branch_id: Optional[str] = None, user: dict = Depends(requir
     if branch_id:
         student_filter["branch_id"] = branch_id
 
-    invoices = await db.invoices.find({}).to_list(10000)
+    # Fetch invoices with projection (only needed fields)
+    invoices = await db.invoices.find({}, {"paid_amount": 1, "balance": 1, "student_id": 1}).to_list(10000)
     total_revenue = sum(i.get("paid_amount", 0) for i in invoices)
     outstanding_balance = sum(i.get("balance", 0) for i in invoices)
 
@@ -556,18 +563,23 @@ async def get_stats(branch_id: Optional[str] = None, user: dict = Depends(requir
     converted_enquiries = await db.enquiries.count_documents({"stage": "converted"})
     conversion_rate = round((converted_enquiries / total_enquiries * 100) if total_enquiries > 0 else 0, 1)
 
-    # Revenue by branch
+    # Revenue by branch — fetch all students + invoices once, aggregate in memory (avoids N+1)
     branches = await db.branches.find().to_list(100)
-    revenue_by_branch = []
-    for branch in branches:
-        b_id = str(branch["_id"])
-        b_students = await db.students.find({"branch_id": b_id}, {"_id": 1}).to_list(1000)
-        s_ids = [str(s["_id"]) for s in b_students]
-        b_invoices = await db.invoices.find({"student_id": {"$in": s_ids}}).to_list(1000) if s_ids else []
-        revenue_by_branch.append({"branch": branch.get("name"), "revenue": sum(i.get("paid_amount", 0) for i in b_invoices)})
+    all_students = await db.students.find({}, {"_id": 1, "branch_id": 1}).to_list(5000)
+    student_branch_map = {str(s["_id"]): s.get("branch_id") for s in all_students}
+    branch_revenue_map: dict = {}
+    for inv in invoices:
+        sid = inv.get("student_id", "")
+        bid = student_branch_map.get(sid, "")
+        branch_revenue_map[bid] = branch_revenue_map.get(bid, 0) + inv.get("paid_amount", 0)
 
-    # Enrolments by course category
-    courses = await db.courses.find().to_list(1000)
+    revenue_by_branch = [
+        {"branch": b.get("name"), "revenue": branch_revenue_map.get(str(b["_id"]), 0)}
+        for b in branches
+    ]
+
+    # Enrolments by course category — projection to fetch only category field
+    courses = await db.courses.find({}, {"category": 1}).to_list(1000)
     category_map = {}
     for c in courses:
         cat = c.get("category", "Other")
