@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Plus, X, Phone, Mail, GripVertical, Trash2 } from "lucide-react";
+import { Plus, X, Phone, Mail, GripVertical, Trash2, Pencil, MapPin } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -14,14 +14,13 @@ const STAGES = [
 ];
 
 const SOURCE_LABELS = {
-  manual: "Walk-in",
-  website: "Website",
-  whatsapp: "WhatsApp",
-  google_forms: "Google Form",
-  promotion: "Promotion",
+  manual: "Walk-in", website: "Website", whatsapp: "WhatsApp",
+  google_forms: "Google Form", promotion: "Promotion",
 };
 
-function EnquiryCard({ enquiry, onDragStart, onDelete, onStageChange }) {
+const emptyForm = { student_name: "", email: "", phone: "", city: "", source: "manual", stage: "new", notes: "" };
+
+function EnquiryCard({ enquiry, onDragStart, onDelete, onEdit }) {
   return (
     <div
       draggable
@@ -31,25 +30,32 @@ function EnquiryCard({ enquiry, onDragStart, onDelete, onStageChange }) {
     >
       <div className="flex items-start justify-between gap-1 mb-2">
         <p className="font-medium text-sm text-[#0A0A0A] leading-tight">{enquiry.student_name}</p>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={() => onDelete(enquiry.id)}
-            className="text-[#8A8F98] hover:text-[#FF2B2B] p-0.5 transition-colors"
-          >
-            <Trash2 size={12} />
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={() => onEdit(enquiry)} data-testid={`edit-enquiry-${enquiry.id}`}
+            className="text-[#8A8F98] hover:text-[#002EB8] p-0.5 transition-colors">
+            <Pencil size={11} />
+          </button>
+          <button onClick={() => onDelete(enquiry.id)}
+            className="text-[#8A8F98] hover:text-[#FF2B2B] p-0.5 transition-colors">
+            <Trash2 size={11} />
           </button>
           <GripVertical size={12} className="text-[#8A8F98]" />
         </div>
       </div>
       <div className="space-y-1 mb-2">
-        <div className="flex items-center gap-1.5 text-xs text-[#8A8F98]">
-          <Phone size={10} />
-          <span>{enquiry.phone}</span>
-        </div>
+        {enquiry.phone && (
+          <div className="flex items-center gap-1.5 text-xs text-[#8A8F98]">
+            <Phone size={10} /><span>{enquiry.phone}</span>
+          </div>
+        )}
         {enquiry.email && (
           <div className="flex items-center gap-1.5 text-xs text-[#8A8F98]">
-            <Mail size={10} />
-            <span className="truncate">{enquiry.email}</span>
+            <Mail size={10} /><span className="truncate">{enquiry.email}</span>
+          </div>
+        )}
+        {enquiry.city && (
+          <div className="flex items-center gap-1.5 text-xs text-[#8A8F98]">
+            <MapPin size={10} /><span>{enquiry.city}</span>
           </div>
         )}
       </div>
@@ -71,10 +77,13 @@ export default function Enquiries() {
   const [draggingId, setDraggingId] = useState(null);
   const [dragOverStage, setDragOverStage] = useState(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    student_name: "", email: "", phone: "", source: "manual", stage: "new", notes: ""
-  });
+  const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+
+  // Edit
+  const [editEnquiry, setEditEnquiry] = useState(null);
+  const [editForm, setEditForm] = useState(emptyForm);
+  const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => { fetchEnquiries(); }, []);
 
@@ -132,16 +141,87 @@ export default function Enquiries() {
       const res = await axios.post(`${API}/api/enquiries`, form, { withCredentials: true });
       setEnquiries((prev) => [res.data, ...prev]);
       setShowForm(false);
-      setForm({ student_name: "", email: "", phone: "", source: "manual", stage: "new", notes: "" });
+      setForm(emptyForm);
       toast.success("Enquiry added!");
     } catch {
       toast.error("Failed to add enquiry");
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
+  };
+
+  const openEdit = (enq) => {
+    setEditEnquiry(enq);
+    setEditForm({
+      student_name: enq.student_name || "",
+      email: enq.email || "",
+      phone: enq.phone || "",
+      city: enq.city || "",
+      source: enq.source || "manual",
+      stage: enq.stage || "new",
+      notes: enq.notes || "",
+    });
+  };
+
+  const handleEditSave = async (e) => {
+    e.preventDefault();
+    setEditSaving(true);
+    try {
+      const res = await axios.put(`${API}/api/enquiries/${editEnquiry.id}`, editForm, { withCredentials: true });
+      setEnquiries((prev) => prev.map((eq) => eq.id === editEnquiry.id ? res.data : eq));
+      setEditEnquiry(null);
+      toast.success("Enquiry updated!");
+    } catch {
+      toast.error("Failed to update enquiry");
+    } finally { setEditSaving(false); }
   };
 
   const getStageEnquiries = (stage) => enquiries.filter((e) => e.stage === stage);
+
+  const FormFields = ({ f, setF, testPrefix = "" }) => (
+    <>
+      {[
+        { label: "Student Name", key: "student_name", type: "text", required: true },
+        { label: "Email", key: "email", type: "email" },
+        { label: "Phone", key: "phone", type: "tel", required: true },
+      ].map((field) => (
+        <div key={field.key}>
+          <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">{field.label}</label>
+          <input type={field.type} value={f[field.key]} onChange={(e) => setF({ ...f, [field.key]: e.target.value })}
+            required={field.required} data-testid={`${testPrefix}enquiry-${field.key}-input`}
+            className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+        </div>
+      ))}
+      <div>
+        <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">City / Location</label>
+        <div className="relative">
+          <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A8F98]" />
+          <input type="text" value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })}
+            placeholder="e.g. Mumbai, Pune, Nagpur" data-testid={`${testPrefix}enquiry-city-input`}
+            className="w-full border border-[#E5E7EB] rounded-md pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">Source</label>
+          <select value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })}
+            className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
+            {Object.entries(SOURCE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">Stage</label>
+          <select value={f.stage} onChange={(e) => setF({ ...f, stage: e.target.value })}
+            className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
+            {STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">Notes</label>
+        <textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={2}
+          className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8] resize-none" />
+      </div>
+    </>
+  );
 
   return (
     <div className="p-6 lg:p-8 font-satoshi">
@@ -151,83 +231,52 @@ export default function Enquiries() {
           <h1 className="font-cabinet font-black text-3xl tracking-tighter text-[#0A0A0A]">CRM Pipeline</h1>
           <p className="text-sm text-[#8A8F98] mt-0.5">{enquiries.length} total enquiries</p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          data-testid="add-enquiry-button"
-          className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] hover:bg-[#001A85] text-white text-sm rounded-md transition-colors font-medium"
-        >
-          <Plus size={16} />
-          Add Enquiry
+        <button onClick={() => setShowForm(true)} data-testid="add-enquiry-button"
+          className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] hover:bg-[#001A85] text-white text-sm rounded-md transition-colors font-medium">
+          <Plus size={16} /> Add Enquiry
         </button>
       </div>
 
-      {/* Add Form Modal */}
+      {/* Add Enquiry Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg border border-[#E5E7EB] w-full max-w-md shadow-xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
+          <div className="bg-white rounded-lg border border-[#E5E7EB] w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB] sticky top-0 bg-white z-10">
               <h2 className="font-cabinet font-bold text-lg tracking-tight">New Enquiry</h2>
-              <button onClick={() => setShowForm(false)} className="text-[#8A8F98] hover:text-[#0A0A0A]">
-                <X size={20} />
-              </button>
+              <button onClick={() => setShowForm(false)} className="text-[#8A8F98] hover:text-[#0A0A0A]"><X size={20} /></button>
             </div>
             <form onSubmit={handleSubmit} data-testid="enquiry-form" className="p-6 space-y-4">
-              {[
-                { label: "Student Name", key: "student_name", type: "text", required: true },
-                { label: "Email", key: "email", type: "email" },
-                { label: "Phone", key: "phone", type: "tel", required: true },
-              ].map((field) => (
-                <div key={field.key}>
-                  <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">{field.label}</label>
-                  <input
-                    type={field.type}
-                    value={form[field.key]}
-                    onChange={(e) => setForm({ ...form, [field.key]: e.target.value })}
-                    required={field.required}
-                    data-testid={`enquiry-${field.key}-input`}
-                    className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8] transition-colors"
-                  />
-                </div>
-              ))}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">Source</label>
-                  <select
-                    value={form.source}
-                    onChange={(e) => setForm({ ...form, source: e.target.value })}
-                    className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]"
-                  >
-                    {Object.entries(SOURCE_LABELS).map(([k, v]) => (
-                      <option key={k} value={k}>{v}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">Stage</label>
-                  <select
-                    value={form.stage}
-                    onChange={(e) => setForm({ ...form, stage: e.target.value })}
-                    className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]"
-                  >
-                    {STAGES.map((s) => (
-                      <option key={s.key} value={s.key}>{s.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">Notes</label>
-                <textarea
-                  value={form.notes}
-                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                  rows={2}
-                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8] resize-none"
-                />
-              </div>
+              <FormFields f={form} setF={setForm} testPrefix="" />
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowForm(false)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm hover:bg-[#F8F9FA] transition-colors">Cancel</button>
-                <button type="submit" disabled={saving} data-testid="enquiry-submit-button" className="flex-1 bg-[#002EB8] hover:bg-[#001A85] text-white py-2 rounded-md text-sm font-medium transition-colors disabled:bg-[#8A8F98]">
+                <button type="button" onClick={() => setShowForm(false)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm hover:bg-[#F8F9FA]">Cancel</button>
+                <button type="submit" disabled={saving} data-testid="enquiry-submit-button"
+                  className="flex-1 bg-[#002EB8] hover:bg-[#001A85] text-white py-2 rounded-md text-sm font-medium disabled:bg-[#8A8F98]">
                   {saving ? "Saving..." : "Add Enquiry"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Enquiry Modal */}
+      {editEnquiry && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg border border-[#E5E7EB] w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB] sticky top-0 bg-white z-10">
+              <div className="flex items-center gap-2">
+                <Pencil size={16} className="text-[#002EB8]" />
+                <h2 className="font-cabinet font-bold text-lg tracking-tight">Edit Enquiry</h2>
+              </div>
+              <button onClick={() => setEditEnquiry(null)} className="text-[#8A8F98] hover:text-[#0A0A0A]"><X size={20} /></button>
+            </div>
+            <form onSubmit={handleEditSave} data-testid="edit-enquiry-form" className="p-6 space-y-4">
+              <FormFields f={editForm} setF={setEditForm} testPrefix="edit-" />
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setEditEnquiry(null)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm hover:bg-[#F8F9FA]">Cancel</button>
+                <button type="submit" disabled={editSaving} data-testid="edit-enquiry-submit"
+                  className="flex-1 bg-[#002EB8] hover:bg-[#001A85] text-white py-2 rounded-md text-sm font-medium disabled:bg-[#8A8F98]">
+                  {editSaving ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>
@@ -248,14 +297,10 @@ export default function Enquiries() {
             const cards = getStageEnquiries(stage.key);
             const isOver = dragOverStage === stage.key;
             return (
-              <div
-                key={stage.key}
-                onDragOver={(e) => handleDragOver(e, stage.key)}
-                onDragLeave={() => setDragOverStage(null)}
-                onDrop={(e) => handleDrop(e, stage.key)}
+              <div key={stage.key} onDragOver={(e) => handleDragOver(e, stage.key)}
+                onDragLeave={() => setDragOverStage(null)} onDrop={(e) => handleDrop(e, stage.key)}
                 className={`flex-shrink-0 w-64 rounded-lg border-2 transition-colors ${isOver ? "border-[#002EB8] bg-blue-50/50" : "border-[#E5E7EB] bg-[#F8F9FA]"}`}
-                data-testid={`kanban-column-${stage.key}`}
-              >
+                data-testid={`kanban-column-${stage.key}`}>
                 <div className="p-3 border-b border-[#E5E7EB]">
                   <div className="flex items-center gap-2">
                     <div className={`w-2.5 h-2.5 rounded-full ${stage.color}`} />
@@ -267,17 +312,11 @@ export default function Enquiries() {
                 </div>
                 <div className="p-2 space-y-2 min-h-[120px]">
                   {cards.map((enquiry) => (
-                    <EnquiryCard
-                      key={enquiry.id}
-                      enquiry={enquiry}
-                      onDragStart={handleDragStart}
-                      onDelete={handleDelete}
-                    />
+                    <EnquiryCard key={enquiry.id} enquiry={enquiry}
+                      onDragStart={handleDragStart} onDelete={handleDelete} onEdit={openEdit} />
                   ))}
                   {cards.length === 0 && (
-                    <div className="flex items-center justify-center h-16 text-xs text-[#8A8F98] italic">
-                      Drop cards here
-                    </div>
+                    <div className="flex items-center justify-center h-16 text-xs text-[#8A8F98] italic">Drop cards here</div>
                   )}
                 </div>
               </div>

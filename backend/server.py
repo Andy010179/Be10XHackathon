@@ -216,6 +216,7 @@ class EnquiryCreate(BaseModel):
     stage: str = "new"
     source: str = "manual"
     notes: str = ""
+    city: Optional[str] = None
 
 class StageUpdate(BaseModel):
     stage: str
@@ -274,7 +275,33 @@ class StatusUpdate(BaseModel):
     status: str
 
 class OnboardStudent(BaseModel):
-    batch_id: str
+    batch_id: Optional[str] = None
+    batch_ids: Optional[List[str]] = None
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    branch_id: Optional[str] = None
+    joining_date: Optional[str] = None
+
+class BatchUpdate(BaseModel):
+    name: Optional[str] = None
+    branch_id: Optional[str] = None
+    course_id: Optional[str] = None
+    teacher_id: Optional[str] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    days: Optional[List[str]] = None
+
+class ScheduleUpdate(BaseModel):
+    course_id: Optional[str] = None
+    teacher_id: Optional[str] = None
+    room_id: Optional[str] = None
+    branch_id: Optional[str] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    title: Optional[str] = None
 
 class AttendanceMark(BaseModel):
     session_id: str
@@ -405,6 +432,17 @@ async def delete_user(user_id: str, user: dict = Depends(require_admin)):
     await db.users.delete_one({"_id": ObjectId(user_id)})
     return {"message": "User deleted"}
 
+@users_router.put("/{user_id}")
+async def update_user(user_id: str, data: UserUpdate, user: dict = Depends(require_admin)):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    if "email" in update:
+        update["email"] = update["email"].lower()
+    if not update:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": update})
+    updated = await db.users.find_one({"_id": ObjectId(user_id)}, {"password_hash": 0})
+    return serialize_doc(updated)
+
 # ========================
 # BRANCHES ROUTES
 # ========================
@@ -479,7 +517,8 @@ async def create_enquiry(data: EnquiryCreate, user: dict = Depends(get_current_u
     doc = {
         "student_name": data.student_name, "email": data.email, "phone": data.phone,
         "courses": data.courses, "stage": data.stage, "source": data.source,
-        "notes": data.notes, "created_at": datetime.now(timezone.utc),
+        "notes": data.notes, "city": data.city,
+        "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }
     result = await db.enquiries.insert_one(doc)
@@ -490,6 +529,7 @@ async def update_enquiry(enquiry_id: str, data: EnquiryCreate, user: dict = Depe
     update = {
         "student_name": data.student_name, "email": data.email, "phone": data.phone,
         "courses": data.courses, "source": data.source, "notes": data.notes,
+        "city": data.city,
         "updated_at": datetime.now(timezone.utc),
     }
     await db.enquiries.update_one({"_id": ObjectId(enquiry_id)}, {"$set": update})
@@ -543,6 +583,14 @@ async def delete_schedule(session_id: str, user: dict = Depends(require_admin)):
     await db.class_sessions.delete_one({"_id": ObjectId(session_id)})
     return {"message": "Session deleted"}
 
+@academic_router.put("/schedule/{session_id}")
+async def update_schedule(session_id: str, data: ScheduleUpdate, user: dict = Depends(require_admin)):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not update:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    await db.class_sessions.update_one({"_id": ObjectId(session_id)}, {"$set": update})
+    return serialize_doc(await db.class_sessions.find_one({"_id": ObjectId(session_id)}))
+
 @academic_router.get("/batches")
 async def list_batches(user: dict = Depends(get_current_user)):
     batches = await db.batches.find().to_list(1000)
@@ -563,6 +611,14 @@ async def create_batch(data: BatchCreate, user: dict = Depends(require_admin)):
 async def delete_batch(batch_id: str, user: dict = Depends(require_admin)):
     await db.batches.delete_one({"_id": ObjectId(batch_id)})
     return {"message": "Batch deleted"}
+
+@academic_router.put("/batches/{batch_id}")
+async def update_batch(batch_id: str, data: BatchUpdate, user: dict = Depends(require_admin)):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not update:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    await db.batches.update_one({"_id": ObjectId(batch_id)}, {"$set": update})
+    return serialize_doc(await db.batches.find_one({"_id": ObjectId(batch_id)}))
 
 # ========================
 # FINANCE ROUTES
@@ -770,9 +826,13 @@ async def update_student_status(student_id: str, data: StatusUpdate, user: dict 
 
 @students_router.post("/{student_id}/onboard")
 async def onboard_student(student_id: str, data: OnboardStudent, user: dict = Depends(require_admin)):
+    all_batch_ids = data.batch_ids or ([data.batch_id] if data.batch_id else [])
+    if not all_batch_ids:
+        raise HTTPException(status_code=400, detail="At least one batch must be selected")
+    primary_batch = all_batch_ids[0]
     await db.students.update_one(
         {"_id": ObjectId(student_id)},
-        {"$set": {"status": "active", "batch_id": data.batch_id}}
+        {"$set": {"status": "active", "batch_id": primary_batch, "batch_ids": all_batch_ids}}
     )
     return serialize_doc(await db.students.find_one({"_id": ObjectId(student_id)}))
 

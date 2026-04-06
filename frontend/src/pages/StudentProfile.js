@@ -26,7 +26,7 @@ export default function StudentProfile() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("Personal Details");
   const [showOnboardForm, setShowOnboardForm] = useState(false);
-  const [selectedBatch, setSelectedBatch] = useState("");
+  const [selectedBatches, setSelectedBatches] = useState([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -58,16 +58,19 @@ export default function StudentProfile() {
 
   const handleOnboard = async (e) => {
     e.preventDefault();
-    if (!selectedBatch) return toast.error("Select a batch");
+    if (selectedBatches.length === 0) return toast.error("Select at least one batch");
     setSaving(true);
     try {
-      const res = await axios.post(`${API}/api/students/${id}/onboard`, { batch_id: selectedBatch }, { withCredentials: true });
+      const res = await axios.post(`${API}/api/students/${id}/onboard`, { batch_ids: selectedBatches }, { withCredentials: true });
       setStudent(res.data);
       setShowOnboardForm(false);
-      toast.success("Student onboarded to batch!");
+      toast.success(`Student enrolled in ${selectedBatches.length} batch(es)!`);
     } catch { toast.error("Failed to onboard"); }
     finally { setSaving(false); }
   };
+
+  const toggleBatch = (batchId) =>
+    setSelectedBatches((prev) => prev.includes(batchId) ? prev.filter((b) => b !== batchId) : [...prev, batchId]);
 
   const handleComplete = async () => {
     if (!window.confirm("Mark student as completed and generate certificate?")) return;
@@ -290,15 +293,33 @@ export default function StudentProfile() {
                 </button>
               </div>
               {showOnboardForm && (
-                <form onSubmit={handleOnboard} className="mt-4 flex gap-2">
-                  <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)}
-                    data-testid="batch-select"
-                    className="flex-1 border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
-                    <option value="">Select Batch</option>
-                    {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                  </select>
-                  <button type="submit" disabled={saving} className="px-4 py-2 bg-[#00C853] text-white text-sm rounded-md hover:opacity-90">Assign</button>
-                  <button type="button" onClick={() => setShowOnboardForm(false)} className="px-3 py-2 border border-[#E5E7EB] rounded-md text-[#8A8F98] hover:bg-[#F8F9FA]"><X size={14} /></button>
+                <form onSubmit={handleOnboard} className="mt-4 space-y-3">
+                  <div>
+                    <p className="text-xs font-mono uppercase tracking-[0.1em] text-[#8A8F98] mb-2">Select Batches (multiple allowed)</p>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                      {batches.length === 0 ? (
+                        <p className="text-xs text-[#8A8F98]">No batches available. Create batches in Academic Hub first.</p>
+                      ) : batches.map((b) => (
+                        <label key={b.id} className={`flex items-center gap-2.5 px-3 py-2 rounded-md border cursor-pointer transition-colors ${selectedBatches.includes(b.id) ? "border-[#002EB8] bg-blue-50" : "border-[#E5E7EB] hover:border-[#002EB8]/40"}`}>
+                          <input type="checkbox" checked={selectedBatches.includes(b.id)} onChange={() => toggleBatch(b.id)}
+                            data-testid={`batch-checkbox-${b.id}`} className="accent-[#002EB8]" />
+                          <div>
+                            <p className="text-sm font-medium text-[#0A0A0A]">{b.name}</p>
+                            <p className="text-xs text-[#8A8F98]">{b.start_time}–{b.end_time} · {b.days?.join(", ")}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    {selectedBatches.length > 0 && (
+                      <p className="text-xs text-[#002EB8] mt-1">{selectedBatches.length} batch(es) selected</p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={saving || selectedBatches.length === 0} className="px-4 py-2 bg-[#00C853] text-white text-sm rounded-md hover:opacity-90 disabled:opacity-50">
+                      Assign {selectedBatches.length > 0 ? `(${selectedBatches.length})` : ""}
+                    </button>
+                    <button type="button" onClick={() => setShowOnboardForm(false)} className="px-3 py-2 border border-[#E5E7EB] rounded-md text-[#8A8F98] hover:bg-[#F8F9FA]"><X size={14} /></button>
+                  </div>
                 </form>
               )}
             </div>

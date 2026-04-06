@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Plus, Trash2, X, Users, ShieldCheck, GraduationCap, Briefcase } from "lucide-react";
+import { Plus, Trash2, X, Users, ShieldCheck, GraduationCap, Briefcase, Pencil, Upload, Download } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -14,6 +14,19 @@ const ROLES = [
 
 const emptyForm = { name: "", email: "", password: "", role: "teacher", branch_id: "" };
 
+function parseCSV(text) {
+  const lines = text.trim().split("\n").filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map((h) => h.trim().toLowerCase().replace(/[^a-z0-9]/g, ""));
+  const nameIdx = headers.findIndex((h) => h.includes("name"));
+  const emailIdx = headers.findIndex((h) => h.includes("email") || h.includes("mail"));
+  if (nameIdx === -1 || emailIdx === -1) return null;
+  return lines.slice(1).map((line) => {
+    const cols = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+    return { name: cols[nameIdx] || "", email: cols[emailIdx] || "" };
+  }).filter((r) => r.name && r.email);
+}
+
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
   const [branches, setBranches] = useState([]);
@@ -23,6 +36,16 @@ export default function UserManagement() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState("all");
+
+  // Edit user
+  const [editUser, setEditUser] = useState(null);
+  const [editForm, setEditForm] = useState({ email: "", role: "teacher", joining_date: "", name: "" });
+  const [editSaving, setEditSaving] = useState(false);
+
+  // CSV import
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvResults, setCsvResults] = useState(null);
+  const csvInputRef = useRef(null);
 
   useEffect(() => {
     Promise.all([
@@ -50,6 +73,29 @@ export default function UserManagement() {
     } finally { setSaving(false); }
   };
 
+  const openEdit = (u) => {
+    setEditUser(u);
+    setEditForm({
+      name: u.name || "",
+      email: u.email || "",
+      role: u.role || "teacher",
+      joining_date: u.joining_date || (u.created_at ? u.created_at.split("T")[0] : ""),
+    });
+  };
+
+  const handleEditSave = async (e) => {
+    e.preventDefault();
+    setEditSaving(true);
+    try {
+      const res = await axios.put(`${API}/api/users/${editUser.id}`, editForm, { withCredentials: true });
+      setUsers((prev) => prev.map((u) => u.id === editUser.id ? { ...u, ...res.data } : u));
+      setEditUser(null);
+      toast.success("User updated!");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to update user");
+    } finally { setEditSaving(false); }
+  };
+
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this user? This cannot be undone.")) return;
     try {
@@ -59,16 +105,58 @@ export default function UserManagement() {
     } catch { toast.error("Failed to delete user"); }
   };
 
+  const handleCSVFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setCsvImporting(true);
+    setCsvResults(null);
+    const text = await file.text();
+    const rows = parseCSV(text);
+    if (rows === null) {
+      toast.error("CSV must have 'name' and 'email' columns");
+      setCsvImporting(false);
+      return;
+    }
+    if (rows.length === 0) {
+      toast.error("No valid rows found in CSV");
+      setCsvImporting(false);
+      return;
+    }
+    const results = [];
+    for (const row of rows) {
+      const autoPassword = row.email.split("@")[0].slice(0, 8) + "1234";
+      try {
+        const res = await axios.post(`${API}/api/users`, {
+          name: row.name, email: row.email, password: autoPassword, role: "student", branch_id: ""
+        }, { withCredentials: true });
+        setUsers((prev) => [res.data, ...prev]);
+        results.push({ name: row.name, email: row.email, status: "ok", password: autoPassword });
+      } catch (err) {
+        results.push({ name: row.name, email: row.email, status: "error", reason: err.response?.data?.detail || "Failed" });
+      }
+    }
+    setCsvResults(results);
+    const ok = results.filter((r) => r.status === "ok").length;
+    toast.success(`Imported ${ok} of ${rows.length} students`);
+    setCsvImporting(false);
+    e.target.value = "";
+  };
+
+  const downloadSampleCSV = () => {
+    const csv = "name,email address\nRahul Sharma,rahul@example.com\nPriya Verma,priya@example.com";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = "student_import_sample.csv";
+    a.click();
+  };
+
   const getRoleConfig = (role) => ROLES.find((r) => r.value === role) || ROLES[2];
   const getBranchName = (id) => branches.find((b) => b.id === id)?.name || "—";
-
   const filtered = users.filter((u) => {
     const matchSearch = u.name?.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase());
     const matchRole = filterRole === "all" || u.role === filterRole;
     return matchSearch && matchRole;
   });
-
-  // Stats
   const roleCounts = ROLES.reduce((acc, r) => ({ ...acc, [r.value]: users.filter((u) => u.role === r.value).length }), {});
 
   if (loading) return <div className="p-8 text-[#8A8F98] font-satoshi">Loading...</div>;
@@ -81,11 +169,44 @@ export default function UserManagement() {
           <h1 className="font-cabinet font-black text-3xl tracking-tighter text-[#0A0A0A]">User Management</h1>
           <p className="text-sm text-[#8A8F98] mt-0.5">{users.length} total accounts</p>
         </div>
-        <button onClick={() => setShowForm(true)} data-testid="add-user-button"
-          className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] text-white text-sm rounded-md hover:bg-[#001A85] transition-colors font-medium">
-          <Plus size={16} /> Create User
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={downloadSampleCSV} title="Download CSV template"
+            className="flex items-center gap-1.5 px-3 py-2 border border-[#E5E7EB] text-[#8A8F98] text-sm rounded-md hover:border-[#002EB8] hover:text-[#002EB8] transition-colors">
+            <Download size={14} /> Template
+          </button>
+          <button onClick={() => csvInputRef.current?.click()} disabled={csvImporting}
+            data-testid="import-csv-button"
+            className="flex items-center gap-1.5 px-3 py-2 border border-[#E5E7EB] text-[#8A8F98] text-sm rounded-md hover:border-[#002EB8] hover:text-[#002EB8] transition-colors disabled:opacity-50">
+            <Upload size={14} /> {csvImporting ? "Importing..." : "Import CSV"}
+          </button>
+          <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleCSVFile} />
+          <button onClick={() => setShowForm(true)} data-testid="add-user-button"
+            className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] text-white text-sm rounded-md hover:bg-[#001A85] transition-colors font-medium">
+            <Plus size={16} /> Create User
+          </button>
+        </div>
       </div>
+
+      {/* CSV Results */}
+      {csvResults && (
+        <div className="mb-4 bg-white border border-[#E5E7EB] rounded-lg p-4" data-testid="csv-results">
+          <div className="flex items-center justify-between mb-2">
+            <p className="font-medium text-sm">CSV Import Results</p>
+            <button onClick={() => setCsvResults(null)} className="text-[#8A8F98] hover:text-[#0A0A0A]"><X size={16} /></button>
+          </div>
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {csvResults.map((r, i) => (
+              <div key={i} className={`flex items-center gap-2 text-xs ${r.status === "ok" ? "text-[#00C853]" : "text-[#FF2B2B]"}`}>
+                <span>{r.status === "ok" ? "✓" : "✗"}</span>
+                <span className="font-medium">{r.name}</span>
+                <span className="text-[#8A8F98]">{r.email}</span>
+                {r.status === "ok" && <span className="text-[#8A8F98]">password: {r.password}</span>}
+                {r.status === "error" && <span>{r.reason}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Role Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
@@ -95,7 +216,7 @@ export default function UserManagement() {
             <button key={role.value} onClick={() => setFilterRole(filterRole === role.value ? "all" : role.value)}
               data-testid={`role-filter-${role.value}`}
               className={`flex items-center gap-3 p-3 border rounded-lg transition-all text-left ${filterRole === role.value ? "border-[#002EB8] bg-blue-50" : "border-[#E5E7EB] bg-white hover:border-[#002EB8]/40"}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs ${role.color}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${role.color}`}>
                 <RoleIcon size={14} />
               </div>
               <div>
@@ -109,8 +230,7 @@ export default function UserManagement() {
 
       {/* Search */}
       <input value={search} onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search by name or email..."
-        data-testid="user-search-input"
+        placeholder="Search by name or email..." data-testid="user-search-input"
         className="w-full mb-4 px-4 py-2.5 border border-[#E5E7EB] rounded-md text-sm focus:outline-none focus:border-[#002EB8] bg-white"
       />
 
@@ -126,25 +246,21 @@ export default function UserManagement() {
               <button onClick={() => setShowForm(false)} className="text-[#8A8F98] hover:text-[#0A0A0A]"><X size={20} /></button>
             </div>
             <form onSubmit={handleSubmit} data-testid="create-user-form" className="p-6 space-y-4">
-              {/* Role Selection */}
               <div>
                 <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-2">Role</label>
                 <div className="grid grid-cols-4 gap-2">
                   {ROLES.map((role) => {
                     const RoleIcon = role.icon;
                     return (
-                      <button key={role.value} type="button"
-                        onClick={() => setForm({ ...form, role: role.value })}
+                      <button key={role.value} type="button" onClick={() => setForm({ ...form, role: role.value })}
                         data-testid={`role-option-${role.value}`}
                         className={`flex flex-col items-center gap-1 py-2.5 px-1 border rounded-md text-xs transition-all ${form.role === role.value ? "border-[#002EB8] bg-blue-50 text-[#002EB8]" : "border-[#E5E7EB] text-[#8A8F98] hover:border-[#002EB8]"}`}>
-                        <RoleIcon size={16} />
-                        <span>{role.label}</span>
+                        <RoleIcon size={16} /><span>{role.label}</span>
                       </button>
                     );
                   })}
                 </div>
               </div>
-
               <div>
                 <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Full Name</label>
                 <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -173,16 +289,67 @@ export default function UserManagement() {
                   </select>
                 </div>
               )}
-              {form.role === "student" && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-xs text-yellow-800">
-                  <strong>Note:</strong> For student portal access, the email must match the email address in the student's record (created under Students module).
-                </div>
-              )}
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setShowForm(false)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm hover:bg-[#F8F9FA]">Cancel</button>
                 <button type="submit" disabled={saving} data-testid="create-user-submit"
                   className="flex-1 bg-[#002EB8] text-white py-2 rounded-md text-sm font-medium hover:bg-[#001A85] disabled:bg-[#8A8F98]">
                   {saving ? "Creating..." : "Create Account"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit User Modal */}
+      {editUser && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg border border-[#E5E7EB] w-full max-w-md shadow-xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
+              <div className="flex items-center gap-2">
+                <Pencil size={16} className="text-[#002EB8]" />
+                <h2 className="font-cabinet font-bold text-lg tracking-tight">Edit User</h2>
+              </div>
+              <button onClick={() => setEditUser(null)} className="text-[#8A8F98] hover:text-[#0A0A0A]"><X size={20} /></button>
+            </div>
+            <form onSubmit={handleEditSave} data-testid="edit-user-form" className="p-6 space-y-4">
+              <div>
+                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Full Name</label>
+                <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  data-testid="edit-user-name"
+                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+              </div>
+              <div>
+                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Email Address</label>
+                <input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                  data-testid="edit-user-email"
+                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+              </div>
+              <div>
+                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-2">Role</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {ROLES.map((role) => {
+                    const RoleIcon = role.icon;
+                    return (
+                      <button key={role.value} type="button" onClick={() => setEditForm({ ...editForm, role: role.value })}
+                        className={`flex flex-col items-center gap-1 py-2.5 px-1 border rounded-md text-xs transition-all ${editForm.role === role.value ? "border-[#002EB8] bg-blue-50 text-[#002EB8]" : "border-[#E5E7EB] text-[#8A8F98] hover:border-[#002EB8]"}`}>
+                        <RoleIcon size={16} /><span>{role.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Joining Date</label>
+                <input type="date" value={editForm.joining_date} onChange={(e) => setEditForm({ ...editForm, joining_date: e.target.value })}
+                  data-testid="edit-user-joining-date"
+                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => setEditUser(null)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm hover:bg-[#F8F9FA]">Cancel</button>
+                <button type="submit" disabled={editSaving} data-testid="edit-user-submit"
+                  className="flex-1 bg-[#002EB8] text-white py-2 rounded-md text-sm font-medium hover:bg-[#001A85] disabled:bg-[#8A8F98]">
+                  {editSaving ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>
@@ -203,37 +370,42 @@ export default function UserManagement() {
           <tbody className="divide-y divide-[#E5E7EB]">
             {filtered.length === 0 ? (
               <tr><td colSpan={6} className="px-4 py-8 text-center text-[#8A8F98]">No users found</td></tr>
-            ) : filtered.map((user) => {
-              const roleConfig = getRoleConfig(user.role);
+            ) : filtered.map((u) => {
+              const roleConfig = getRoleConfig(u.role);
               const RoleIcon = roleConfig.icon;
               return (
-                <tr key={user.id} className="hover:bg-[#F8F9FA] transition-colors" data-testid={`user-row-${user.id}`}>
+                <tr key={u.id} className="hover:bg-[#F8F9FA] transition-colors" data-testid={`user-row-${u.id}`}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 bg-[#002EB8]/10 rounded-full flex items-center justify-center font-cabinet font-bold text-[#002EB8] text-sm">
-                        {user.name?.charAt(0)?.toUpperCase()}
+                        {u.name?.charAt(0)?.toUpperCase()}
                       </div>
-                      <span className="font-medium text-[#0A0A0A]">{user.name}</span>
+                      <span className="font-medium text-[#0A0A0A]">{u.name}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-[#8A8F98] text-xs">{user.email}</td>
+                  <td className="px-4 py-3 text-[#8A8F98] text-xs">{u.email}</td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <span className={`flex items-center gap-1 text-xs px-2 py-1 rounded border w-fit capitalize ${roleConfig.color}`}>
-                      <RoleIcon size={10} />
-                      {user.role}
+                      <RoleIcon size={10} />{u.role}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-[#8A8F98] text-xs whitespace-nowrap">{getBranchName(user.branch_id)}</td>
+                  <td className="px-4 py-3 text-[#8A8F98] text-xs whitespace-nowrap">{getBranchName(u.branch_id)}</td>
                   <td className="px-4 py-3 text-[#8A8F98] text-xs whitespace-nowrap">
-                    {user.created_at ? new Date(user.created_at).toLocaleDateString("en-IN") : "—"}
+                    {u.joining_date || (u.created_at ? new Date(u.created_at).toLocaleDateString("en-IN") : "—")}
                   </td>
                   <td className="px-4 py-3">
-                    {user.role !== "admin" && (
-                      <button onClick={() => handleDelete(user.id)} data-testid={`delete-user-${user.id}`}
-                        className="text-[#8A8F98] hover:text-[#FF2B2B] transition-colors p-1">
-                        <Trash2 size={14} />
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => openEdit(u)} data-testid={`edit-user-${u.id}`}
+                        className="text-[#8A8F98] hover:text-[#002EB8] transition-colors p-1">
+                        <Pencil size={13} />
                       </button>
-                    )}
+                      {u.role !== "admin" && (
+                        <button onClick={() => handleDelete(u.id)} data-testid={`delete-user-${u.id}`}
+                          className="text-[#8A8F98] hover:text-[#FF2B2B] transition-colors p-1">
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
