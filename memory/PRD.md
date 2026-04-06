@@ -102,3 +102,12 @@ February 2026
 - P1: Settings page for Razorpay keys ✅ DONE
 - P2: Multi-tenant institute isolation
 - P2: Parent login portal
+
+
+### Phase 4 (Feb 2026) — Edit Flows & UX Fixes
+- **User Management**: Edit user (email, role, joining date) pencil icon + PUT /api/users/:id
+- **User Management**: CSV bulk import for students (auto-password, results panel, template CSV download)
+- **Academic Hub**: Edit Branch, Batch, Schedule via pencil icons + modal forms + PUT endpoints
+- **Lifecycle Actions**: Multi-batch checkbox select (batch_ids array) when onboarding students
+- **CRM Pipeline**: Edit per enquiry card via pencil icon (hover), full edit modal with all fields
+- **New Enquiry**: City/Location field with map-pin icon, shown on kanban cards
