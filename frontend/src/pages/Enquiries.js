@@ -71,6 +71,56 @@ function EnquiryCard({ enquiry, onDragStart, onDelete, onEdit }) {
   );
 }
 
+// FormFields is defined OUTSIDE the component to prevent re-mount on every keystroke
+function FormFields({ f, setF, testPrefix = "" }) {
+  return (
+    <>
+      {[
+        { label: "Student Name", key: "student_name", type: "text", required: true },
+        { label: "Email", key: "email", type: "email" },
+        { label: "Phone", key: "phone", type: "tel", required: true },
+      ].map((field) => (
+        <div key={field.key}>
+          <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">{field.label}</label>
+          <input type={field.type} value={f[field.key]} onChange={(e) => setF({ ...f, [field.key]: e.target.value })}
+            required={field.required} data-testid={`${testPrefix}enquiry-${field.key}-input`}
+            className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+        </div>
+      ))}
+      <div>
+        <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">City / Location</label>
+        <div className="relative">
+          <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A8F98]" />
+          <input type="text" value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })}
+            placeholder="e.g. Mumbai, Pune, Nagpur" data-testid={`${testPrefix}enquiry-city-input`}
+            className="w-full border border-[#E5E7EB] rounded-md pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">Source</label>
+          <select value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })}
+            className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
+            {Object.entries(SOURCE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">Stage</label>
+          <select value={f.stage} onChange={(e) => setF({ ...f, stage: e.target.value })}
+            className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
+            {STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">Notes</label>
+        <textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={2}
+          className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8] resize-none" />
+      </div>
+    </>
+  );
+}
+
 export default function Enquiries() {
   const [enquiries, setEnquiries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -192,52 +242,7 @@ export default function Enquiries() {
 
   const getStageEnquiries = (stage) => enquiries.filter((e) => e.stage === stage);
 
-  const FormFields = ({ f, setF, testPrefix = "" }) => (
-    <>
-      {[
-        { label: "Student Name", key: "student_name", type: "text", required: true },
-        { label: "Email", key: "email", type: "email" },
-        { label: "Phone", key: "phone", type: "tel", required: true },
-      ].map((field) => (
-        <div key={field.key}>
-          <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">{field.label}</label>
-          <input type={field.type} value={f[field.key]} onChange={(e) => setF({ ...f, [field.key]: e.target.value })}
-            required={field.required} data-testid={`${testPrefix}enquiry-${field.key}-input`}
-            className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-        </div>
-      ))}
-      <div>
-        <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">City / Location</label>
-        <div className="relative">
-          <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A8F98]" />
-          <input type="text" value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })}
-            placeholder="e.g. Mumbai, Pune, Nagpur" data-testid={`${testPrefix}enquiry-city-input`}
-            className="w-full border border-[#E5E7EB] rounded-md pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">Source</label>
-          <select value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })}
-            className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
-            {Object.entries(SOURCE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">Stage</label>
-          <select value={f.stage} onChange={(e) => setF({ ...f, stage: e.target.value })}
-            className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
-            {STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-          </select>
-        </div>
-      </div>
-      <div>
-        <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-1.5">Notes</label>
-        <textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={2}
-          className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8] resize-none" />
-      </div>
-    </>
-  );
+  // removed inline FormFields — defined at module level above to prevent focus loss
 
   return (
     <div className="p-6 lg:p-8 font-satoshi">
