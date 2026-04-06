@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Plus, X, Phone, Mail, GripVertical, Trash2, Pencil, MapPin } from "lucide-react";
+import { Plus, X, Phone, Mail, GripVertical, Trash2, Pencil, MapPin, Upload, Download } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -20,7 +20,37 @@ const SOURCE_LABELS = {
 
 const emptyForm = { student_name: "", email: "", phone: "", city: "", source: "manual", stage: "new", notes: "" };
 
-function EnquiryCard({ enquiry, onDragStart, onDelete, onEdit }) {
+const VALID_SOURCES = Object.keys(SOURCE_LABELS);
+const VALID_STAGES = ["new", "followup", "missed", "declined", "converted"];
+
+function parseEnquiryCSV(text) {
+  const lines = text.trim().split("\n").filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map((h) => h.trim().toLowerCase().replace(/[^a-z_]/g, ""));
+  const col = (alts) => headers.findIndex((h) => alts.some((a) => h.includes(a)));
+  const nameIdx   = col(["name"]);
+  const emailIdx  = col(["email", "mail"]);
+  const phoneIdx  = col(["phone", "mobile", "contact"]);
+  const cityIdx   = col(["city", "location", "place"]);
+  const sourceIdx = col(["source", "channel"]);
+  const stageIdx  = col(["stage", "status"]);
+  const notesIdx  = col(["notes", "remark", "comment"]);
+  if (nameIdx === -1) return null;
+  return lines.slice(1).map((line) => {
+    const cols = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+    const source = VALID_SOURCES.includes(cols[sourceIdx]) ? cols[sourceIdx] : "manual";
+    const stage  = VALID_STAGES.includes(cols[stageIdx])   ? cols[stageIdx]  : "new";
+    return {
+      student_name: cols[nameIdx]  || "",
+      email:        cols[emailIdx] || "",
+      phone:        cols[phoneIdx] || "",
+      city:         cols[cityIdx]  || "",
+      source,
+      stage,
+      notes: cols[notesIdx] || "",
+    };
+  }).filter((r) => r.student_name);
+}({ enquiry, onDragStart, onDelete, onEdit }) {
   return (
     <div
       draggable
@@ -134,6 +164,58 @@ export default function Enquiries() {
   const [editEnquiry, setEditEnquiry] = useState(null);
   const [editForm, setEditForm] = useState(emptyForm);
   const [editSaving, setEditSaving] = useState(false);
+
+  // CSV import
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvResults, setCsvResults] = useState(null);
+  const csvInputRef = useRef(null);
+
+  const downloadSampleCSV = () => {
+    const csv = [
+      "name,email,phone,city,source,stage,notes",
+      "Rahul Sharma,rahul@example.com,9876543210,Mumbai,website,new,Interested in Python course",
+      "Priya Verma,priya@example.com,9876500001,Pune,manual,followup,Called twice no answer",
+      "Arun Mehta,arun@example.com,9000000001,Nashik,promotion,new,Scholarship inquiry",
+    ].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = "enquiry_import_sample.csv";
+    a.click();
+  };
+
+  const handleCSVFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setCsvImporting(true);
+    setCsvResults(null);
+    const text = await file.text();
+    const rows = parseEnquiryCSV(text);
+    if (rows === null) {
+      toast.error("CSV must have at least a 'name' column");
+      setCsvImporting(false);
+      return;
+    }
+    if (rows.length === 0) {
+      toast.error("No valid rows found in CSV");
+      setCsvImporting(false);
+      return;
+    }
+    const results = [];
+    for (const row of rows) {
+      try {
+        const res = await axios.post(`${API}/api/enquiries`, row, { withCredentials: true });
+        setEnquiries((prev) => [res.data, ...prev]);
+        results.push({ name: row.student_name, stage: row.stage, status: "ok" });
+      } catch (err) {
+        results.push({ name: row.student_name, stage: row.stage, status: "error", reason: err.response?.data?.detail || "Failed" });
+      }
+    }
+    setCsvResults(results);
+    const ok = results.filter((r) => r.status === "ok").length;
+    toast.success(`Imported ${ok} of ${rows.length} enquiries`);
+    setCsvImporting(false);
+    e.target.value = "";
+  };
 
   useEffect(() => { fetchEnquiries(); }, []);
 
@@ -252,11 +334,49 @@ export default function Enquiries() {
           <h1 className="font-cabinet font-black text-3xl tracking-tighter text-[#0A0A0A]">CRM Pipeline</h1>
           <p className="text-sm text-[#8A8F98] mt-0.5">{enquiries.length} total enquiries</p>
         </div>
-        <button onClick={() => setShowForm(true)} data-testid="add-enquiry-button"
-          className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] hover:bg-[#001A85] text-white text-sm rounded-md transition-colors font-medium">
-          <Plus size={16} /> Add Enquiry
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={downloadSampleCSV} title="Download CSV template"
+            className="flex items-center gap-1.5 px-3 py-2 border border-[#E5E7EB] text-[#8A8F98] text-sm rounded-md hover:border-[#002EB8] hover:text-[#002EB8] transition-colors">
+            <Download size={14} /> Template
+          </button>
+          <button onClick={() => csvInputRef.current?.click()} disabled={csvImporting}
+            data-testid="import-enquiries-csv-button"
+            className="flex items-center gap-1.5 px-3 py-2 border border-[#E5E7EB] text-[#8A8F98] text-sm rounded-md hover:border-[#002EB8] hover:text-[#002EB8] transition-colors disabled:opacity-50">
+            <Upload size={14} /> {csvImporting ? "Importing..." : "Import CSV"}
+          </button>
+          <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleCSVFile} />
+          <button onClick={() => setShowForm(true)} data-testid="add-enquiry-button"
+            className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] hover:bg-[#001A85] text-white text-sm rounded-md transition-colors font-medium">
+            <Plus size={16} /> Add Enquiry
+          </button>
+        </div>
       </div>
+
+      {/* CSV Import Results */}
+      {csvResults && (
+        <div className="bg-white border border-[#E5E7EB] rounded-lg p-4" data-testid="csv-import-results">
+          <div className="flex items-center justify-between mb-3">
+            <p className="font-medium text-sm text-[#0A0A0A]">
+              Import Results — {csvResults.filter((r) => r.status === "ok").length}/{csvResults.length} successful
+            </p>
+            <button onClick={() => setCsvResults(null)} className="text-[#8A8F98] hover:text-[#0A0A0A]"><X size={16} /></button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-48 overflow-y-auto">
+            {csvResults.map((r, i) => (
+              <div key={i} className={`flex items-center gap-2 px-2.5 py-1.5 rounded text-xs border ${
+                r.status === "ok"
+                  ? "bg-green-50 text-green-800 border-green-200"
+                  : "bg-red-50 text-[#FF2B2B] border-red-200"
+              }`}>
+                <span className="font-medium shrink-0">{r.status === "ok" ? "✓" : "✗"}</span>
+                <span className="font-medium truncate">{r.name}</span>
+                {r.status === "ok" && <span className="text-[#8A8F98] ml-auto shrink-0 capitalize">{r.stage}</span>}
+                {r.status === "error" && <span className="ml-auto shrink-0">{r.reason}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Add Enquiry Modal */}
       {showForm && (
