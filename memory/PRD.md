@@ -127,6 +127,13 @@ Build a full-stack Learning Management System (LMS) called EduTech-LMS with:
 | PDF (reportlab) | Working | |
 | WhatsApp Webhook | Working | |
 
+### Code Quality Pass (April 2026)
+- Fixed empty `catch {}` blocks in TeacherAttendance, StudentPortal, Dashboard (added `console.error`)
+- Fixed array-index-as-key in UserManagement, Students, Enquiries, Dashboard (×3), AttendanceReports — now use stable entity IDs
+- Extracted inline chart config objects to module-level constants (Dashboard.js, AttendanceReports.js) to prevent unnecessary re-renders
+- Added `// eslint-disable-next-line react-hooks/exhaustive-deps` to all intentional fetch-on-mount effects (API/axios are module-level constants, not component state)
+- Confirmed Python `is None` / `is not None` patterns are **correct PEP 8 idioms** — not changed
+
 ## P1/P2 Backlog
 - Gemini 3 Flash AI weekly summary (P1)
 - Resend production key activation (P2)

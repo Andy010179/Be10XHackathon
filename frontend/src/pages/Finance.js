@@ -65,6 +65,8 @@ export default function Finance() {
     student_id: "", student_name: "", course_id: "", course_name: "", base_fee: "", discount: "0"
   });
 
+  // Fetch all data on mount — deps intentionally empty (module-level constants API/axios don't need re-run)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     Promise.all([
       axios.get(`${API}/api/finance/invoices`, { withCredentials: true }),

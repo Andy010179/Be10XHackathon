@@ -44,6 +44,8 @@ export default function StudentProfile() {
   const [showOnboardForm, setShowOnboardForm] = useState(false);
   const [selectedBatches, setSelectedBatches] = useState([]);
 
+  // Fetch on mount — deps intentionally empty (id is from URL params; API/axios are module-level constants)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     Promise.all([
       axios.get(`${API}/api/students/${id}`, { withCredentials: true }),

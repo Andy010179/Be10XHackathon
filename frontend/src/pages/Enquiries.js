@@ -221,6 +221,7 @@ export default function Enquiries() {
     e.target.value = "";
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchEnquiries(); }, []);
 
   const fetchEnquiries = async () => {
@@ -386,7 +387,7 @@ export default function Enquiries() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-48 overflow-y-auto">
             {csvResults.map((r, i) => (
-              <div key={i} className={`flex items-center gap-2 px-2.5 py-1.5 rounded text-xs border ${
+              <div key={r.email || i} className={`flex items-center gap-2 px-2.5 py-1.5 rounded text-xs border ${
                 r.status === "ok"
                   ? "bg-green-50 text-green-800 border-green-200"
                   : "bg-red-50 text-[#FF2B2B] border-red-200"

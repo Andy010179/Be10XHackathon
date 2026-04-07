@@ -35,6 +35,8 @@ export default function Students() {
   const [sortCol, setSortCol] = useState("name");
   const [sortDir, setSortDir] = useState("asc");
 
+  // Fetch on mount — deps intentionally empty (API/axios are module-level constants)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     Promise.all([
       axios.get(`${API}/api/students`, { withCredentials: true }),
@@ -213,7 +215,7 @@ export default function Students() {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">
             {promoResults.map((r, i) => (
-              <div key={i} className={`flex items-center gap-2 px-2.5 py-1.5 rounded text-xs border ${
+              <div key={r.student_id || r.name || i} className={`flex items-center gap-2 px-2.5 py-1.5 rounded text-xs border ${
                 r.status === "ok" ? "bg-green-50 text-green-800 border-green-200" : "bg-red-50 text-[#FF2B2B] border-red-200"
               }`}>
                 <span className="font-medium">{r.status === "ok" ? "✓" : "✗"}</span>

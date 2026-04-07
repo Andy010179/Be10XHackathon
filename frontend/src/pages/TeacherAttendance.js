@@ -45,7 +45,7 @@ export default function TeacherAttendance() {
       const att = {};
       res.data.forEach((a) => { att[a.student_id] = a.status; });
       setAttendance(att);
-    } catch {}
+    } catch (err) { console.error("Attendance load error:", err); }
   };
 
   const loadQr = async () => {

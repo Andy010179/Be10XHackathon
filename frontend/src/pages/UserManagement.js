@@ -51,6 +51,8 @@ export default function UserManagement() {
   const [csvResults, setCsvResults] = useState(null);
   const csvInputRef = useRef(null);
 
+  // Fetch on mount — deps intentionally empty (API/axios are module-level constants)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     Promise.all([
       axios.get(`${API}/api/users`, { withCredentials: true }),
@@ -217,7 +219,7 @@ export default function UserManagement() {
           </div>
           <div className="space-y-1 max-h-40 overflow-y-auto">
             {csvResults.map((r, i) => (
-              <div key={i} className={`flex items-center gap-2 text-xs ${r.status === "ok" ? "text-[#00C853]" : "text-[#FF2B2B]"}`}>
+              <div key={r.email || i} className={`flex items-center gap-2 text-xs ${r.status === "ok" ? "text-[#00C853]" : "text-[#FF2B2B]"}`}>
                 <span>{r.status === "ok" ? "✓" : "✗"}</span>
                 <span className="font-medium">{r.name}</span>
                 <span className="text-[#8A8F98]">{r.email}</span>

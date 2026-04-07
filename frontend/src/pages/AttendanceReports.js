@@ -6,6 +6,9 @@ import { Users, TrendingUp, TrendingDown, Award, Filter, Search, ChevronUp, Chev
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
+const CHART_TICK_STYLE = { fontSize: 11, fill: "#8A8F98" };
+const CHART_MARGIN     = { top: 4, right: 4, bottom: 40, left: 4 };
+
 const PCT_COLOR = (pct) => {
   if (pct >= 75) return "#00C853";
   if (pct >= 50) return "#FFD600";
@@ -150,8 +153,8 @@ export default function AttendanceReports() {
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={chartData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#8A8F98" }} axisLine={false} tickLine={false} />
-              <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: "#8A8F98" }} axisLine={false} tickLine={false} unit="%" />
+              <XAxis dataKey="name" tick={CHART_TICK_STYLE} axisLine={false} tickLine={false} />
+              <YAxis domain={[0, 100]} tick={CHART_TICK_STYLE} axisLine={false} tickLine={false} unit="%" />
               <Tooltip
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
@@ -166,7 +169,7 @@ export default function AttendanceReports() {
               />
               <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
                 {chartData.map((entry, i) => (
-                  <Cell key={i} fill={PCT_COLOR(entry.pct)} />
+                  <Cell key={entry.student_name || i} fill={PCT_COLOR(entry.pct)} />
                 ))}
               </Bar>
             </BarChart>

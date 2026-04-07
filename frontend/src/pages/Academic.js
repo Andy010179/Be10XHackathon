@@ -39,6 +39,8 @@ export default function Academic() {
   const [editSched, setEditSched] = useState(null);
   const [editSchedForm, setEditSchedForm] = useState(emptySched);
 
+  // Fetch on mount — deps intentionally empty (API/axios are module-level constants)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     Promise.all([
       axios.get(`${API}/api/branches`, { withCredentials: true }),

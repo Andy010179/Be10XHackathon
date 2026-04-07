@@ -7,6 +7,8 @@ const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(undefined);
 
+  // Auth check on mount — deps intentionally empty (API_URL/axios are module-level constants)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     axios
       .get(`${API_URL}/api/auth/me`, { withCredentials: true })

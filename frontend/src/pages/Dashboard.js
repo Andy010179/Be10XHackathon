@@ -11,6 +11,14 @@ import { TrendingUp, Users, DollarSign, Target, Sparkles, RefreshCw, Filter, X, 
 const API = process.env.REACT_APP_BACKEND_URL;
 const COLORS = ["#002EB8", "#FFD600", "#00C853", "#FF2B2B", "#8A8F98"];
 
+// Chart config constants — extracted to prevent new object creation on each render
+const CHART_MARGIN       = { top: 4, right: 4, bottom: 4, left: 4 };
+const CHART_MARGIN_LG    = { top: 10, right: 10, bottom: 0, left: -10 };
+const CHART_TICK_STYLE   = { fontSize: 11, fill: "#8A8F98" };
+const CHART_LEGEND_STYLE = { fontSize: 11 };
+const LINE_DOT_STYLE     = { fill: "#002EB8", r: 4 };
+const BAR_LABEL_STYLE    = { position: "top", fontSize: 11, fill: "#8A8F98" };
+
 function KPICard({ title, value, subtitle, icon: Icon, color = "#002EB8" }) {
   return (
     <div className="bg-white border border-[#E5E7EB] p-6 hover:shadow-sm transition-shadow" data-testid={`kpi-card-${title.toLowerCase().replace(/\s/g, "-")}`}>
@@ -58,7 +66,7 @@ export default function Dashboard() {
     try {
       const res = await axios.get(`${API}/api/branches`, { withCredentials: true });
       setBranches(res.data);
-    } catch {}
+    } catch (err) { console.error("Branch load error:", err); }
   };
 
   const fetchStats = async () => {
@@ -74,6 +82,7 @@ export default function Dashboard() {
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const fetchBranchDetail = useCallback(async (branchId, branchName) => {
     setBranchDetailLoading(true);
     setShowBranchDetail(true);
@@ -201,13 +210,13 @@ export default function Dashboard() {
             <ResponsiveContainer width="100%" height={220}>
               <BarChart
                 data={stats.revenue_by_branch}
-                margin={{ top: 4, right: 4, bottom: 4, left: 4 }}
+                margin={CHART_MARGIN}
                 onClick={handleBarClick}
                 style={{ cursor: "pointer" }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                <XAxis dataKey="branch" tick={{ fontSize: 11, fill: "#8A8F98" }} />
-                <YAxis tick={{ fontSize: 11, fill: "#8A8F98" }} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}K`} />
+                <XAxis dataKey="branch" tick={CHART_TICK_STYLE} />
+                <YAxis tick={CHART_TICK_STYLE} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}K`} />
                 <Tooltip
                   content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
@@ -225,7 +234,7 @@ export default function Dashboard() {
                 >
                   {(stats?.revenue_by_branch || []).map((entry, i) => (
                     <Cell
-                      key={i}
+                      key={entry.branch_id || entry.branch || i}
                       fill={showBranchDetail && branchDetail?.branch_name === entry.branch ? "#001A85" : "#002EB8"}
                     />
                   ))}
@@ -243,10 +252,10 @@ export default function Dashboard() {
               <PieChart>
                 <Pie data={stats.enrolments_by_category} cx="50%" cy="50%" innerRadius={50} outerRadius={80}
                   dataKey="value" nameKey="name">
-                  {stats.enrolments_by_category.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  {stats.enrolments_by_category.map((cat, i) => <Cell key={cat.name || i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Legend wrapperStyle={CHART_LEGEND_STYLE} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
@@ -304,7 +313,7 @@ export default function Dashboard() {
                 </thead>
                 <tbody className="divide-y divide-[#E5E7EB]">
                   {(branchDetail?.items || []).map((item, i) => (
-                    <tr key={i} className="hover:bg-[#F8F9FA] transition-colors">
+                    <tr key={item.invoice_id || item.student_email || i} className="hover:bg-[#F8F9FA] transition-colors">
                       <td className="px-4 py-3 font-medium text-[#0A0A0A]">{item.student_name}</td>
                       <td className="px-4 py-3 text-[#8A8F98] text-xs">{item.student_email}</td>
                       <td className="px-4 py-3 text-[#8A8F98]">{item.course || "—"}</td>
@@ -334,12 +343,12 @@ export default function Dashboard() {
           <p className="text-xs text-[#8A8F98] mb-3">Filtered to {selectedBranchName}</p>
         )}
         <ResponsiveContainer width="100%" height={180}>
-          <LineChart data={stats?.monthly_trends || []} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+          <LineChart data={stats?.monthly_trends || []} margin={CHART_MARGIN}>
             <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-            <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#8A8F98" }} />
-            <YAxis tick={{ fontSize: 11, fill: "#8A8F98" }} />
+            <XAxis dataKey="month" tick={CHART_TICK_STYLE} />
+            <YAxis tick={CHART_TICK_STYLE} />
             <Tooltip />
-            <Line type="monotone" dataKey="enrolments" stroke="#002EB8" strokeWidth={2} dot={{ fill: "#002EB8", r: 4 }} />
+            <Line type="monotone" dataKey="enrolments" stroke="#002EB8" strokeWidth={2} dot={LINE_DOT_STYLE} />
           </LineChart>
         </ResponsiveContainer>
       </div>

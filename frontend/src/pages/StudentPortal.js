@@ -76,7 +76,7 @@ export default function StudentPortal() {
         try {
           const certRes = await axios.get(`${API}/api/portal/certificate`, { withCredentials: true });
           setCertificate(certRes.data);
-        } catch {}
+        } catch (err) { console.error("Certificate fetch error:", err); }
       }
     } catch { toast.error("Failed to load portal data"); }
     finally { setLoading(false); }
