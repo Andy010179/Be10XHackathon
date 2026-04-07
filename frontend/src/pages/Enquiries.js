@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Plus, X, Phone, Mail, GripVertical, Trash2, Pencil, MapPin, Upload, Download } from "lucide-react";
+import { Plus, X, Phone, Mail, GripVertical, Trash2, Pencil, MapPin, Upload, Download, Search } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -172,6 +172,7 @@ export default function Enquiries() {
   const [csvImporting, setCsvImporting] = useState(false);
   const [csvResults, setCsvResults] = useState(null);
   const csvInputRef = useRef(null);
+  const [crmSearch, setCrmSearch] = useState("");
 
   const downloadSampleCSV = () => {
     const csv = [
@@ -325,7 +326,17 @@ export default function Enquiries() {
     } finally { setEditSaving(false); }
   };
 
-  const getStageEnquiries = (stage) => enquiries.filter((e) => e.stage === stage);
+  const getStageEnquiries = (stage) => enquiries.filter((e) => {
+    const matchStage = e.stage === stage;
+    if (!crmSearch) return matchStage;
+    const q = crmSearch.toLowerCase();
+    return matchStage && (
+      e.student_name?.toLowerCase().includes(q) ||
+      e.email?.toLowerCase().includes(q) ||
+      e.phone?.includes(crmSearch) ||
+      e.city?.toLowerCase().includes(q)
+    );
+  });
 
   // removed inline FormFields — defined at module level above to prevent focus loss
 
@@ -353,6 +364,15 @@ export default function Enquiries() {
             <Plus size={16} /> Add Enquiry
           </button>
         </div>
+      </div>
+
+      {/* Search Bar */}
+      <div className="relative mb-4">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A8F98]" />
+        <input value={crmSearch} onChange={(e) => setCrmSearch(e.target.value)}
+          placeholder="Search by name, email, phone, or location..."
+          data-testid="crm-search-input"
+          className="w-full pl-9 pr-4 py-2.5 border border-[#E5E7EB] rounded-md text-sm focus:outline-none focus:border-[#002EB8] bg-white" />
       </div>
 
       {/* CSV Import Results */}

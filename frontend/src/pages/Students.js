@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { toast } from "sonner";
-import { Plus, Search, X, ChevronRight, Users, RefreshCw, CheckSquare } from "lucide-react";
+import { Plus, Search, X, ChevronRight, Users, RefreshCw, CheckSquare, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -32,6 +32,8 @@ export default function Students() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [promoting, setPromoting] = useState(false);
   const [promoResults, setPromoResults] = useState(null);
+  const [sortCol, setSortCol] = useState("name");
+  const [sortDir, setSortDir] = useState("asc");
 
   useEffect(() => {
     Promise.all([
@@ -53,7 +55,21 @@ export default function Students() {
       s.phone?.includes(search);
     const matchStatus = statusFilter === "all" || s.status === statusFilter;
     return matchSearch && matchStatus;
+  }).sort((a, b) => {
+    const aVal = a[sortCol] || ""; const bVal = b[sortCol] || "";
+    if (typeof aVal === "string") return sortDir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    return sortDir === "asc" ? aVal - bVal : bVal - aVal;
   });
+
+  const handleSort = (col) => {
+    if (sortCol === col) setSortDir((d) => d === "asc" ? "desc" : "asc");
+    else { setSortCol(col); setSortDir("asc"); }
+  };
+
+  const SortIcon = ({ col }) => {
+    if (sortCol !== col) return <ChevronsUpDown size={11} className="ml-1 opacity-30" />;
+    return sortDir === "asc" ? <ChevronUp size={11} className="ml-1 text-[#002EB8]" /> : <ChevronDown size={11} className="ml-1 text-[#002EB8]" />;
+  };
 
   const toggleSelect = (e, id) => {
     e.stopPropagation();
@@ -275,9 +291,19 @@ export default function Students() {
                     onClick={(e) => e.stopPropagation()}
                   />
                 </th>
-                {["Name", "Contact", "Branch", "Status", "Progress", ""].map((h) => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-mono uppercase tracking-[0.1em] text-[#8A8F98] whitespace-nowrap">{h}</th>
+                {[
+                  { col: "name", label: "Name" },
+                  { col: "email", label: "Contact" },
+                  { col: "branch_id", label: "Branch" },
+                  { col: "status", label: "Status" },
+                  { col: "syllabus_percentage", label: "Progress" },
+                ].map(({ col, label }) => (
+                  <th key={col} onClick={() => handleSort(col)}
+                    className="text-left px-4 py-3 text-xs font-mono uppercase tracking-[0.1em] text-[#8A8F98] whitespace-nowrap cursor-pointer select-none hover:text-[#002EB8] transition-colors">
+                    <div className="flex items-center">{label}<SortIcon col={col} /></div>
+                  </th>
                 ))}
+                <th className="px-4 py-3 w-8" />
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E5E7EB]">

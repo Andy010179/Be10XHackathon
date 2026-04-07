@@ -1,123 +1,135 @@
 # EduTech-LMS PRD
 
-## Project Overview
-Full-stack EduTech CRM-LMS platform built with React + FastAPI + MongoDB.
+## Problem Statement
+Build a full-stack Learning Management System (LMS) called EduTech-LMS with:
+- Multi-role auth (Admin, Teacher, Employer, Student)
+- Course + Batch + Schedule management
+- CRM Pipeline (Enquiries → Leads → Conversion)
+- Student lifecycle (Onboarding → Active → Completed/Dropped)
+- Finance & Invoicing with Razorpay
+- Student Portal (self-service)
+- PDF Certificates
+- Attendance tracking
+- Email notifications (Resend)
+- WhatsApp webhook CRM integration
 
-## Architecture
-- **Frontend**: React (CRA), Tailwind CSS, shadcn/ui, recharts, sonner, lucide-react
-- **Backend**: FastAPI, Motor (async MongoDB), PyJWT, bcrypt, emergentintegrations (Gemini 3 Flash)
-- **Database**: MongoDB (test_database)
-- **Auth**: JWT (httpOnly cookies), role-based (Admin/Employer/Teacher/Student)
-- **AI**: Gemini 3 Flash via emergentintegrations for weekly summary
+## Tech Stack
+- Frontend: React.js + Shadcn UI + TailwindCSS
+- Backend: FastAPI + Motor (async MongoDB)
+- Database: MongoDB
+- Auth: JWT (httpOnly cookies)
+- PDF: reportlab
+- Payments: Razorpay
+- Email: Resend (MOCKED without key)
 
-## User Roles
-- **Admin**: Full access (all modules)
-- **Employer**: Dashboard only (analytics + AI summary)
-- **Teacher**: Teacher Attendance UI only (mobile-first)
-- **Student**: (future - profile view)
+## Core Architecture
+```
+/app/
+├── backend/
+│   ├── server.py              # Main FastAPI app (~1500 lines, APIRouter separations)
+│   └── requirements.txt
+├── frontend/
+│   └── src/pages/             # All page components
+└── memory/
+    ├── PRD.md
+    └── test_credentials.md
+```
 
-## Implemented Features (MVP)
+## Key DB Collections
+- users: { email, password_hash, role, full_name, is_active, student_id (for student-linked users) }
+- students: { user_id, enrollment_no, course_ids, branch_id, status, email, phone, dob, address, guardian_name, guardian_phone, notes, id_proof, institute_name, syllabus_percentage }
+- enquiries: { name, email, phone, city, source, stage, notes }
+- invoices: { student_id, course_id, base_fee, gst_amount, discount, total, paid_amount, balance, status }
+- payments: { invoice_id, payment_id, order_id, amount, method, student_id, created_at }
+- fee_queries: { student_id, student_name, student_email, message, status, created_at, resolved_at }
+- branches, batches, schedules, courses, certificates, attendance
 
-### 1. Authentication (JWT + Cookies)
-- Login/Logout with httpOnly cookies
-- Role-based protected routes
-- Admin seeded on startup (admin@edutech.com / admin123)
+## What's Been Implemented (as of April 2026)
 
-### 2. CRM Pipeline (Enquiries)
-- Kanban drag-and-drop board
-- 5 stages: New, Follow-up, Missed, Declined, Converted
-- Add/Delete enquiries
+### Phase 1 & 2 (Complete)
+- JWT Auth (login/logout/me/refresh)
+- Course CRUD + Batches + Schedules (Academic Hub)
+- Student management with lifecycle (onboarding/active/completed/dropped)
+- Finance invoicing with GST calc (18%), Razorpay mock/real payments
+- User Management (CRUD + CSV bulk import)
+- CRM Pipeline (Kanban drag-drop, CSV bulk import, city field)
+- Student Portal (self-service: profile edit, attendance, fees, certificate)
 
-### 3. Academic Hub
-- Branch management (CRUD)
-- Batch management with days/timings
-- Class scheduling with conflict checker (teacher + room overlap detection)
+### Phase 3 & 4 (Complete)
+- PDF Certificate generation (reportlab, downloadable from portal)
+- Attendance batch reports with bar chart visualization
+- WhatsApp webhook router (Meta + Twilio)
+- Settings page for Razorpay key management
+- Dashboard drill-down analytics with branch revenue filter
+- Student Bulk Promotion (generates re-enrolment CRM leads)
+- Auto-create Student record on CRM enquiry conversion
+- New Enquiry city field + per-enquiry editing
 
-### 4. Financial Engine
-- Invoice generation with 18% GST calculation
-- Fee breakdown display
-- Payment recording
-- Nudge notifications for overdue balances
+### Phase 5 (Complete — April 2026)
+- **Issue 1**: Advanced Student Profile Editing
+  - Edit form: Name, Phone, DOB, Branch, Guardian Name/Phone, ID Proof, School/Institute
+  - Payment History tab in Financials (expandable per invoice row)
+  - Backend: StudentUpdate model + new fields (id_proof, institute_name)
+  
+- **Issue 2**: Global Table Sorting, Filtering, Column Toggles
+  - Finance: sort by any column, status filter, student/course search, Columns toggle (Base Fee/GST/Discount)
+  - Students: sortable by Name, Status, Progress columns
+  - AttendanceReports: search by student name + sortable columns
+  - CRM Pipeline: search bar filters cards by name/email/phone/city
 
-### 5. Employer Dashboard
-- KPI cards: Revenue, Outstanding, Students, Conversion Rate
-- Bar Chart: Revenue per Branch
-- Pie Chart: Enrolments by Category
-- Line Chart: Monthly Enrolment Trends
-- AI Weekly Summary (Gemini 3 Flash)
-- Branch filter
+- **Issue 3**: User Management Password Controls
+  - CSV bulk import now sets default password = "User123"
+  - Edit User modal has "Reset Password" optional field
+  - Backend: UserUpdate model with new_password field + hash on update
 
-### 6. Teacher Light UI (Mobile-first)
-- Session selection
-- QR code generation per session
-- One-tap Present/Absent marking
-- Live attendance stats
-- Auto-updates syllabus percentage
+- **Issue 4**: Student-Linked User Creation
+  - Create User with role=student → shows searchable student dropdown
+  - Links user.student_id → student.user_id bidirectionally
+  - Teacher/Admin/Employer creation unchanged
 
-### 7. Student Lifecycle Management
-- Student list with search
-- Full profile with 4 tabs: Personal, Academics, Financials, Lifecycle Actions
-- Status toggle (onboarding/active/completed/dropped)
-- Batch assignment/onboarding
-- Certificate generation
-- Next-year promotion (creates CRM lead)
+- **Issue 5**: Student Portal + Admin Fee Queries
+  - Student portal has 5 tabs: Profile, Courses & Attendance, My Fees, Certificate, Fee Query
+  - Admin "Fee Queries" page at /fee-queries (new route + nav item)
+  - Admin can see all submitted queries, filter by status/search, mark as resolved
+  - Backend: GET /api/admin/fee-queries, PATCH /api/admin/fee-queries/:id/resolve
 
-## Sample Data (auto-seeded)
-- 3 Branches (Pune, Mumbai, Nashik)
-- 5 Courses (HSC, CET, JEE, NEET, CA)
-- 5 Sample Enquiries across all stages
-- 4 Sample Students
+## Key API Endpoints (Complete List)
+- POST /api/auth/login, logout, GET /api/auth/me
+- GET/POST /api/branches, /api/courses
+- GET/POST/PUT/DELETE /api/enquiries
+- PATCH /api/enquiries/:id/stage (auto-converts to student)
+- POST /api/enquiries/bulk-import
+- GET/POST/PUT/DELETE /api/users
+- POST /api/users (now handles student_id for linking)
+- GET/POST /api/students, GET/PUT /api/students/:id
+- PATCH /api/students/:id/status
+- POST /api/students/:id/onboard, complete, promote
+- GET /api/students/:id/certificate
+- GET/POST /api/finance/invoices, POST /api/finance/calculate
+- PATCH /api/finance/invoices/:id/pay (now records to payments collection)
+- GET /api/finance/invoices/:id/payments (NEW - payment history)
+- POST /api/finance/nudge/:student_id
+- GET /api/academic/batches, schedules
+- GET /api/teacher/attendance/batch-report
+- POST /api/portal/fee-query
+- GET /api/admin/fee-queries (NEW)
+- PATCH /api/admin/fee-queries/:id/resolve (NEW)
+- GET/POST /api/settings/razorpay
+- POST /api/payments/create-order, verify
+- GET/POST /api/webhooks/whatsapp
+- GET /api/dashboard/stats
 
-## API Base URL
-https://skill-academy-77.preview.emergentagent.com
+## Integrations
+| Service | Status | Notes |
+|---------|--------|-------|
+| Razorpay | Working (mock/real) | Keys managed via /settings page |
+| Resend Email | MOCKED | Needs RESEND_API_KEY in .env |
+| PDF (reportlab) | Working | |
+| WhatsApp Webhook | Working | |
 
-## Admin Credentials
-- Email: admin@edutech.com
-- Password: admin123
+## P1/P2 Backlog
+- Gemini 3 Flash AI weekly summary (P1)
+- Resend production key activation (P2)
 
-## Date Created
-February 2026
-
-## What's Been Implemented
-
-### Phase 1 (MVP — Feb 2026)
-- JWT Auth, CRM Kanban, Academic Hub (conflict checker), Finance (GST), Dashboard (charts + AI), Teacher Attendance (QR), Student Lifecycle
-
-### Phase 2 (Feb 2026)
-- **Course Management UI** — Full CRUD with card grid, category badges, edit/delete, GST preview
-- **User Management** — Create Employer/Teacher/Student accounts with role selector, branch assignment, role stat cards
-- **Email Nudge (Resend)** — Integrated Resend library; sends fee reminder HTML emails when RESEND_API_KEY is set; graceful fallback with toast when not configured. Sender: andykool010179@gmail.com
-- **Razorpay Payments** — Full integration with mock mode (when no keys); real Razorpay checkout when keys provided; payment verify updates invoice status; mock payment modal for demo
-- **Student Self-Service Portal** — 5 tabs: Profile (editable), Courses & Attendance, My Fees, Certificate Download (HTML), Fee Query form with email notification to admin
-
-## Pending Integrations
-- Add RESEND_API_KEY to backend/.env for live email nudges (domain verification required for andykool010179@gmail.com)
-- Add RAZORPAY_KEY_ID + RAZORPAY_KEY_SECRET to backend/.env for live payments
-
-## Prioritized Backlog
-- P0: WhatsApp webhook for CRM lead auto-capture ✅ DONE
-- P0: PDF certificate generation (instead of HTML) ✅ DONE
-- P1: Student fee payment from portal (Razorpay in student portal) ✅ DONE
-- P1: Attendance reports per batch ✅ DONE
-- P1: Settings page for Razorpay keys ✅ DONE
-- P2: Multi-tenant institute isolation
-- P2: Parent login portal
-
-
-### Phase 4 (Feb 2026) — Edit Flows & UX Fixes
-- **User Management**: Edit user (email, role, joining date) pencil icon + PUT /api/users/:id
-- **User Management**: CSV bulk import for students (auto-password, results panel, template CSV download)
-- **Academic Hub**: Edit Branch, Batch, Schedule via pencil icons + modal forms + PUT endpoints
-- **Lifecycle Actions**: Multi-batch checkbox select (batch_ids array) when onboarding students
-- **CRM Pipeline**: Edit per enquiry card via pencil icon (hover), full edit modal with all fields
-- **New Enquiry**: City/Location field with map-pin icon, shown on kanban cards
-
-
-### Phase 5 (Feb 2026) — CRM Enhancements + Dashboard Drill-down + Bulk Promotion
-- **CRM Pipeline**: Bulk CSV import for enquiries with all 7 fields (name, email, phone, city, source, stage, notes) + Template download
-- **CRM Pipeline**: Enquiry form focus-loss fixed (FormFields moved to module-level)
-- **CRM Pipeline**: `re-enrollment` source label added to SOURCE_LABELS
-- **Dashboard**: Branch filter now correctly filters ALL KPIs, charts, and monthly trends (invoice-level filtering)
-- **Dashboard**: Revenue by Branch bar chart is clickable → drill-down panel with line-by-line invoice details (student, course, paid, balance, status)
-- **Students**: Multi-select checkboxes + select-all, Status filter dropdown
-- **Students**: Bulk Promotion — select students → Generate Re-enrolment Leads → creates CRM enquiries (source: re-enrollment)
+## Refactoring TODO
+- server.py is ~1500 lines; break into /routers directory when next major feature added

@@ -4,20 +4,21 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   LayoutDashboard, Users, GraduationCap, DollarSign,
   BookOpen, Menu, X, LogOut, ChevronRight, Building2,
-  Users2, UserCog, BarChart2, Settings
+  Users2, UserCog, BarChart2, Settings, MessageSquare
 } from "lucide-react";
 
 const navItems = [
-  { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "employer"] },
-  { path: "/enquiries", label: "CRM Pipeline", icon: Users, roles: ["admin"] },
-  { path: "/academic", label: "Academic", icon: BookOpen, roles: ["admin"] },
-  { path: "/courses", label: "Courses", icon: GraduationCap, roles: ["admin"] },
-  { path: "/finance", label: "Finance", icon: DollarSign, roles: ["admin"] },
-  { path: "/students", label: "Students", icon: Users2, roles: ["admin"] },
-  { path: "/attendance-reports", label: "Attendance Reports", icon: BarChart2, roles: ["admin"] },
-  { path: "/users", label: "User Management", icon: UserCog, roles: ["admin"] },
-  { path: "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
-  { path: "/portal", label: "My Portal", icon: LayoutDashboard, roles: ["student"] },
+  { path: "/dashboard",           label: "Dashboard",         icon: LayoutDashboard, roles: ["admin", "employer"] },
+  { path: "/enquiries",           label: "CRM Pipeline",      icon: Users,            roles: ["admin"] },
+  { path: "/academic",            label: "Academic",          icon: BookOpen,         roles: ["admin"] },
+  { path: "/courses",             label: "Courses",           icon: GraduationCap,    roles: ["admin"] },
+  { path: "/finance",             label: "Finance",           icon: DollarSign,       roles: ["admin"] },
+  { path: "/students",            label: "Students",          icon: Users2,           roles: ["admin"] },
+  { path: "/attendance-reports",  label: "Attendance Reports",icon: BarChart2,        roles: ["admin"] },
+  { path: "/fee-queries",         label: "Fee Queries",       icon: MessageSquare,    roles: ["admin"] },
+  { path: "/users",               label: "User Management",   icon: UserCog,          roles: ["admin"] },
+  { path: "/settings",            label: "Settings",          icon: Settings,         roles: ["admin"] },
+  { path: "/portal",              label: "My Portal",         icon: LayoutDashboard,  roles: ["student"] },
 ];
 
 export default function Layout() {

@@ -16,6 +16,7 @@ import UserManagement from "./pages/UserManagement";
 import StudentPortal from "./pages/StudentPortal";
 import AttendanceReports from "./pages/AttendanceReports";
 import Settings from "./pages/Settings";
+import FeeQueries from "./pages/FeeQueries";
 
 const ProtectedRoute = ({ children, roles }) => {
   const { user, loading } = useAuth();
@@ -139,6 +140,14 @@ function AppRoutes() {
             element={
               <ProtectedRoute roles={["admin"]}>
                 <Settings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/fee-queries"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <FeeQueries />
               </ProtectedRoute>
             }
           />

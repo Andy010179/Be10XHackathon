@@ -224,6 +224,7 @@ class UserCreate(BaseModel):
     password: str
     role: str = "student"
     branch_id: Optional[str] = None
+    student_id: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: str
@@ -302,6 +303,8 @@ class StudentUpdate(BaseModel):
     guardian_phone: Optional[str] = None
     notes: Optional[str] = None
     syllabus_percentage: Optional[float] = None
+    id_proof: Optional[str] = None
+    institute_name: Optional[str] = None
 
 class StatusUpdate(BaseModel):
     status: str
@@ -316,6 +319,7 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     branch_id: Optional[str] = None
     joining_date: Optional[str] = None
+    new_password: Optional[str] = None
 
 class BatchUpdate(BaseModel):
     name: Optional[str] = None
@@ -446,18 +450,36 @@ async def list_users(user: dict = Depends(require_admin)):
 
 @users_router.post("")
 async def create_user(data: UserCreate, user: dict = Depends(require_admin)):
+    name = data.name
     email = data.email.lower()
+    if data.role == "student" and data.student_id:
+        try:
+            student = await db.students.find_one({"_id": ObjectId(data.student_id)})
+            if student:
+                name = student.get("name", name)
+                email = student.get("email", email).lower()
+        except Exception:
+            pass
     existing = await db.users.find_one({"email": email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     user_doc = {
-        "name": data.name, "email": email,
+        "name": name, "email": email,
         "password_hash": hash_password(data.password),
         "role": data.role, "branch_id": data.branch_id,
+        "student_id": data.student_id if data.role == "student" else None,
         "created_at": datetime.now(timezone.utc),
     }
     result = await db.users.insert_one(user_doc)
-    return {"id": str(result.inserted_id), "name": data.name, "email": email, "role": data.role}
+    if data.role == "student" and data.student_id:
+        try:
+            await db.students.update_one(
+                {"_id": ObjectId(data.student_id)},
+                {"$set": {"user_id": str(result.inserted_id)}}
+            )
+        except Exception:
+            pass
+    return {"id": str(result.inserted_id), "name": name, "email": email, "role": data.role}
 
 @users_router.delete("/{user_id}")
 async def delete_user(user_id: str, user: dict = Depends(require_admin)):
@@ -466,9 +488,13 @@ async def delete_user(user_id: str, user: dict = Depends(require_admin)):
 
 @users_router.put("/{user_id}")
 async def update_user(user_id: str, data: UserUpdate, user: dict = Depends(require_admin)):
-    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    update = {k: v for k, v in data.model_dump().items() if v is not None and k != "new_password"}
     if "email" in update:
         update["email"] = update["email"].lower()
+    if data.new_password:
+        if len(data.new_password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        update["password_hash"] = hash_password(data.new_password)
     if not update:
         raise HTTPException(status_code=400, detail="No fields to update")
     await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": update})
@@ -708,7 +734,21 @@ async def mark_paid(invoice_id: str, data: PaymentUpdate, user: dict = Depends(r
         {"_id": ObjectId(invoice_id)},
         {"$set": {"paid_amount": new_paid, "balance": new_balance, "status": new_status}}
     )
+    await db.payments.insert_one({
+        "invoice_id": invoice_id,
+        "payment_id": f"pay_manual_{uuid.uuid4().hex[:12]}",
+        "order_id": None,
+        "amount": data.amount,
+        "method": "manual",
+        "student_id": invoice.get("student_id", ""),
+        "created_at": datetime.now(timezone.utc),
+    })
     return serialize_doc(await db.invoices.find_one({"_id": ObjectId(invoice_id)}))
+
+@finance_router.get("/invoices/{invoice_id}/payments")
+async def get_invoice_payments(invoice_id: str, user: dict = Depends(get_current_user)):
+    payments = await db.payments.find({"invoice_id": invoice_id}).sort("created_at", -1).to_list(100)
+    return [serialize_doc(p) for p in payments]
 
 @finance_router.post("/nudge/{student_id}")
 async def send_nudge(student_id: str, user: dict = Depends(require_admin)):
@@ -1374,6 +1414,28 @@ async def get_whatsapp_info(request: Request, user: dict = Depends(require_admin
     return {"webhook_url": f"{backend_url}/api/webhooks/whatsapp", "verify_token": WHATSAPP_VERIFY_TOKEN}
 
 # ========================
+# ADMIN ROUTES
+# ========================
+admin_router = APIRouter(prefix="/admin", tags=["admin"])
+
+@admin_router.get("/fee-queries")
+async def get_all_fee_queries(user: dict = Depends(require_admin)):
+    queries = await db.fee_queries.find().sort("created_at", -1).to_list(1000)
+    return [serialize_doc(q) for q in queries]
+
+@admin_router.patch("/fee-queries/{query_id}/resolve")
+async def resolve_fee_query(query_id: str, user: dict = Depends(require_admin)):
+    await db.fee_queries.update_one(
+        {"_id": ObjectId(query_id)},
+        {"$set": {"status": "resolved", "resolved_at": datetime.now(timezone.utc),
+                  "resolved_by": user.get("id") or str(user.get("_id", ""))}}
+    )
+    query = await db.fee_queries.find_one({"_id": ObjectId(query_id)})
+    if not query:
+        raise HTTPException(status_code=404, detail="Query not found")
+    return serialize_doc(query)
+
+# ========================
 api_router.include_router(auth_router)
 api_router.include_router(users_router)
 api_router.include_router(branches_router)
@@ -1388,6 +1450,7 @@ api_router.include_router(payments_router)
 api_router.include_router(portal_router)
 api_router.include_router(webhooks_router)
 api_router.include_router(settings_router)
+api_router.include_router(admin_router)
 app.include_router(api_router)
 
 # ========================

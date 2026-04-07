@@ -30,16 +30,20 @@ function parseCSV(text) {
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
   const [branches, setBranches] = useState([]);
+  const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState("all");
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [studentSearch, setStudentSearch] = useState("");
+  const [showStudentDropdown, setShowStudentDropdown] = useState(false);
 
   // Edit user
   const [editUser, setEditUser] = useState(null);
-  const [editForm, setEditForm] = useState({ email: "", role: "teacher", joining_date: "", name: "" });
+  const [editForm, setEditForm] = useState({ email: "", role: "teacher", joining_date: "", name: "", new_password: "" });
   const [editSaving, setEditSaving] = useState(false);
 
   // CSV import
@@ -51,9 +55,11 @@ export default function UserManagement() {
     Promise.all([
       axios.get(`${API}/api/users`, { withCredentials: true }),
       axios.get(`${API}/api/branches`, { withCredentials: true }),
-    ]).then(([u, b]) => {
+      axios.get(`${API}/api/students`, { withCredentials: true }),
+    ]).then(([u, b, s]) => {
       setUsers(u.data);
       setBranches(b.data);
+      setStudents(s.data);
     }).catch(() => toast.error("Failed to load users"))
       .finally(() => setLoading(false));
   }, []);
@@ -61,12 +67,21 @@ export default function UserManagement() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (form.password.length < 6) return toast.error("Password must be at least 6 characters");
+    if (form.role === "student" && !selectedStudent) return toast.error("Please select a student from the list");
     setSaving(true);
     try {
-      const res = await axios.post(`${API}/api/users`, form, { withCredentials: true });
+      const payload = {
+        ...form,
+        name:       form.role === "student" ? selectedStudent.name  : form.name,
+        email:      form.role === "student" ? selectedStudent.email : form.email,
+        student_id: form.role === "student" ? selectedStudent.id    : undefined,
+      };
+      const res = await axios.post(`${API}/api/users`, payload, { withCredentials: true });
       setUsers([res.data, ...users]);
       setShowForm(false);
       setForm(emptyForm);
+      setSelectedStudent(null);
+      setStudentSearch("");
       toast.success(`${form.role.charAt(0).toUpperCase() + form.role.slice(1)} account created!`);
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to create user");
@@ -80,14 +95,20 @@ export default function UserManagement() {
       email: u.email || "",
       role: u.role || "teacher",
       joining_date: u.joining_date || (u.created_at ? u.created_at.split("T")[0] : ""),
+      new_password: "",
     });
   };
 
   const handleEditSave = async (e) => {
     e.preventDefault();
+    if (editForm.new_password && editForm.new_password.length < 6) {
+      return toast.error("Password must be at least 6 characters");
+    }
     setEditSaving(true);
     try {
-      const res = await axios.put(`${API}/api/users/${editUser.id}`, editForm, { withCredentials: true });
+      const payload = { ...editForm };
+      if (!payload.new_password) delete payload.new_password;
+      const res = await axios.put(`${API}/api/users/${editUser.id}`, payload, { withCredentials: true });
       setUsers((prev) => prev.map((u) => u.id === editUser.id ? { ...u, ...res.data } : u));
       setEditUser(null);
       toast.success("User updated!");
@@ -124,7 +145,7 @@ export default function UserManagement() {
     }
     const results = [];
     for (const row of rows) {
-      const autoPassword = row.email.split("@")[0].slice(0, 8) + "1234";
+    const autoPassword = "User123";
       try {
         const res = await axios.post(`${API}/api/users`, {
           name: row.name, email: row.email, password: autoPassword, role: "student", branch_id: ""
@@ -252,7 +273,8 @@ export default function UserManagement() {
                   {ROLES.map((role) => {
                     const RoleIcon = role.icon;
                     return (
-                      <button key={role.value} type="button" onClick={() => setForm({ ...form, role: role.value })}
+                      <button key={role.value} type="button"
+                        onClick={() => { setForm({ ...form, role: role.value }); setSelectedStudent(null); setStudentSearch(""); }}
                         data-testid={`role-option-${role.value}`}
                         className={`flex flex-col items-center gap-1 py-2.5 px-1 border rounded-md text-xs transition-all ${form.role === role.value ? "border-[#002EB8] bg-blue-50 text-[#002EB8]" : "border-[#E5E7EB] text-[#8A8F98] hover:border-[#002EB8]"}`}>
                         <RoleIcon size={16} /><span>{role.label}</span>
@@ -261,18 +283,62 @@ export default function UserManagement() {
                   })}
                 </div>
               </div>
-              <div>
-                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Full Name</label>
-                <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. Rahul Sharma" data-testid="user-name-input"
-                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-              </div>
-              <div>
-                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Email Address</label>
-                <input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  placeholder="user@domain.com" data-testid="user-email-input"
-                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-              </div>
+              {form.role === "student" ? (
+                <div>
+                  <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Link to Existing Student</label>
+                  <div className="relative">
+                    <input value={studentSearch}
+                      onChange={(e) => { setStudentSearch(e.target.value); setSelectedStudent(null); setShowStudentDropdown(true); }}
+                      onFocus={() => setShowStudentDropdown(true)}
+                      placeholder="Search student by name or email..."
+                      data-testid="student-link-search"
+                      className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+                    {showStudentDropdown && studentSearch.length > 0 && (
+                      <div className="absolute z-20 w-full bg-white border border-[#E5E7EB] rounded-md shadow-lg max-h-48 overflow-y-auto mt-1">
+                        {students.filter((s) =>
+                          s.name?.toLowerCase().includes(studentSearch.toLowerCase()) ||
+                          s.email?.toLowerCase().includes(studentSearch.toLowerCase())
+                        ).slice(0, 10).map((s) => (
+                          <button key={s.id} type="button"
+                            onClick={() => { setSelectedStudent(s); setStudentSearch(s.name); setShowStudentDropdown(false); }}
+                            data-testid={`student-option-${s.id}`}
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-[#F8F9FA] border-b border-[#E5E7EB] last:border-0">
+                            <p className="font-medium text-[#0A0A0A]">{s.name}</p>
+                            <p className="text-xs text-[#8A8F98]">{s.email}</p>
+                          </button>
+                        ))}
+                        {students.filter((s) =>
+                          s.name?.toLowerCase().includes(studentSearch.toLowerCase()) ||
+                          s.email?.toLowerCase().includes(studentSearch.toLowerCase())
+                        ).length === 0 && (
+                          <p className="px-3 py-2 text-xs text-[#8A8F98]">No students found</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {selectedStudent && (
+                    <div className="mt-2 bg-blue-50 border border-blue-200 rounded-md px-3 py-2 text-xs">
+                      <p className="font-medium text-[#002EB8]">{selectedStudent.name}</p>
+                      <p className="text-[#8A8F98]">{selectedStudent.email}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Full Name</label>
+                    <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+                      placeholder="e.g. Rahul Sharma" data-testid="user-name-input"
+                      className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Email Address</label>
+                    <input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
+                      placeholder="user@domain.com" data-testid="user-email-input"
+                      className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+                  </div>
+                </>
+              )}
               <div>
                 <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Password</label>
                 <input required type="password" minLength={6} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
@@ -344,6 +410,17 @@ export default function UserManagement() {
                 <input type="date" value={editForm.joining_date} onChange={(e) => setEditForm({ ...editForm, joining_date: e.target.value })}
                   data-testid="edit-user-joining-date"
                   className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+              </div>
+              <div>
+                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Reset Password <span className="normal-case text-[#8A8F98]">(leave blank to keep current)</span></label>
+                <input type="password" minLength={6} value={editForm.new_password || ""}
+                  onChange={(e) => setEditForm({ ...editForm, new_password: e.target.value })}
+                  placeholder="New password (min 6 characters)"
+                  data-testid="edit-user-new-password"
+                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+                {editForm.new_password?.length > 0 && editForm.new_password.length < 6 && (
+                  <p className="text-xs text-[#FF2B2B] mt-1">Password must be at least 6 characters</p>
+                )}
               </div>
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setEditUser(null)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm hover:bg-[#F8F9FA]">Cancel</button>
