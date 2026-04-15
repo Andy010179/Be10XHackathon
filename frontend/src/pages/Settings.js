@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { CreditCard, Webhook, Eye, EyeOff, CheckCircle, Copy, ExternalLink, Info, Key, Database, Download, Upload, Trash2, AlertTriangle, X } from "lucide-react";
+import { CreditCard, Webhook, Eye, EyeOff, CheckCircle, Copy, ExternalLink, Info, Key, Database, Download, Upload, Trash2, AlertTriangle, X, MessageSquare, Phone } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -11,6 +11,14 @@ export default function Settings() {
   const [keySecret, setKeySecret] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Twilio state
+  const [twilioConfig, setTwilioConfig] = useState({ account_sid: "", phone_number: "", has_auth_token: false, configured: false, source: "" });
+  const [twilioSid, setTwilioSid] = useState("");
+  const [twilioToken, setTwilioToken] = useState("");
+  const [twilioPhone, setTwilioPhone] = useState("");
+  const [showTwilioToken, setShowTwilioToken] = useState(false);
+  const [savingTwilio, setSavingTwilio] = useState(false);
 
   const [webhookInfo, setWebhookInfo] = useState({ webhook_url: "", verify_token: "" });
 
@@ -26,10 +34,14 @@ export default function Settings() {
     Promise.all([
       axios.get(`${API}/api/settings/razorpay`, { withCredentials: true }),
       axios.get(`${API}/api/settings/whatsapp-webhook`, { withCredentials: true }),
-    ]).then(([rzp, wh]) => {
+      axios.get(`${API}/api/settings/twilio`, { withCredentials: true }),
+    ]).then(([rzp, wh, twilio]) => {
       setRzpConfig(rzp.data);
       setKeyId(rzp.data.key_id || "");
       setWebhookInfo(wh.data);
+      setTwilioConfig(twilio.data);
+      setTwilioSid(twilio.data.account_sid || "");
+      setTwilioPhone(twilio.data.phone_number || "");
     }).catch(() => toast.error("Failed to load settings"));
   }, []);
 
@@ -55,6 +67,29 @@ export default function Settings() {
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
     toast.success("Copied to clipboard!");
+  };
+
+  const handleSaveTwilio = async (e) => {
+    e.preventDefault();
+    if (!twilioSid || !twilioToken || !twilioPhone) {
+      toast.error("All three Twilio fields are required");
+      return;
+    }
+    setSavingTwilio(true);
+    try {
+      const res = await axios.post(
+        `${API}/api/settings/twilio`,
+        { account_sid: twilioSid, auth_token: twilioToken, phone_number: twilioPhone },
+        { withCredentials: true }
+      );
+      toast.success(res.data.message);
+      setTwilioConfig((prev) => ({ ...prev, account_sid: twilioSid, phone_number: twilioPhone, has_auth_token: true, configured: true, source: "database" }));
+      setTwilioToken("");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to save Twilio settings");
+    } finally {
+      setSavingTwilio(false);
+    }
   };
 
   const handleDownloadBackup = async () => {
@@ -129,7 +164,7 @@ export default function Settings() {
     <div className="p-6 lg:p-8 font-satoshi max-w-3xl">
       <div className="mb-6">
         <h1 className="font-cabinet font-black text-3xl tracking-tighter text-[#0A0A0A]">Settings</h1>
-        <p className="text-sm text-[#8A8F98] mt-0.5">Configure payment gateways and integrations</p>
+        <p className="text-sm text-[#8A8F98] mt-0.5">Configure payment gateways, SMS alerts, and integrations</p>
       </div>
 
       {/* Razorpay Settings */}
@@ -212,8 +247,101 @@ export default function Settings() {
         </form>
       </div>
 
+      {/* Twilio SMS Settings */}
+      <div className="bg-white border border-[#E5E7EB] rounded-lg overflow-hidden mt-5">
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-[#E5E7EB] bg-[#F8F9FA]">
+          <div className="w-9 h-9 bg-[#F22F46]/10 rounded-md flex items-center justify-center">
+            <MessageSquare size={18} className="text-[#F22F46]" />
+          </div>
+          <div className="flex-1">
+            <h2 className="font-cabinet font-bold text-base text-[#0A0A0A]">Twilio SMS Alerts</h2>
+            <p className="text-xs text-[#8A8F98]">Send instant SMS to parents when a student is marked absent</p>
+          </div>
+          {twilioConfig.configured ? (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-[#00C853] bg-green-50 border border-green-200 px-2.5 py-1 rounded-full">
+              <CheckCircle size={12} /> Active
+            </span>
+          ) : (
+            <span className="text-xs font-medium text-yellow-700 bg-yellow-50 border border-yellow-200 px-2.5 py-1 rounded-full">
+              Not configured
+            </span>
+          )}
+        </div>
+        <form onSubmit={handleSaveTwilio} className="p-6 space-y-4" data-testid="twilio-settings-form">
+          {twilioConfig.configured && (
+            <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-md text-xs text-green-800">
+              <CheckCircle size={14} className="mt-0.5 shrink-0" />
+              <span>Twilio is configured ({twilioConfig.source}). Enter new credentials below to update.</span>
+            </div>
+          )}
+          <div>
+            <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Account SID</label>
+            <div className="relative">
+              <Key size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A8F98]" />
+              <input
+                type="text"
+                value={twilioSid}
+                onChange={(e) => setTwilioSid(e.target.value)}
+                placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                data-testid="twilio-account-sid-input"
+                className="w-full border border-[#E5E7EB] rounded-md pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-[#F22F46] font-mono"
+              />
+            </div>
+            <p className="text-xs text-[#8A8F98] mt-1">Found in Twilio Console → Account Info</p>
+          </div>
+          <div>
+            <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">
+              Auth Token {twilioConfig.has_auth_token && <span className="text-[#00C853] normal-case font-sans">(already set)</span>}
+            </label>
+            <div className="relative">
+              <Key size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A8F98]" />
+              <input
+                type={showTwilioToken ? "text" : "password"}
+                value={twilioToken}
+                onChange={(e) => setTwilioToken(e.target.value)}
+                placeholder={twilioConfig.has_auth_token ? "Enter new token to update" : "Your Twilio Auth Token"}
+                data-testid="twilio-auth-token-input"
+                className="w-full border border-[#E5E7EB] rounded-md pl-9 pr-10 py-2.5 text-sm focus:outline-none focus:border-[#F22F46] font-mono"
+              />
+              <button type="button" onClick={() => setShowTwilioToken(!showTwilioToken)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8F98] hover:text-[#0A0A0A]">
+                {showTwilioToken ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Twilio Phone Number</label>
+            <div className="relative">
+              <Phone size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A8F98]" />
+              <input
+                type="text"
+                value={twilioPhone}
+                onChange={(e) => setTwilioPhone(e.target.value)}
+                placeholder="+15551234567"
+                data-testid="twilio-phone-input"
+                className="w-full border border-[#E5E7EB] rounded-md pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-[#F22F46] font-mono"
+              />
+            </div>
+            <p className="text-xs text-[#8A8F98] mt-1">Your Twilio "From" number in E.164 format (e.g. +15551234567)</p>
+          </div>
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              type="submit"
+              disabled={savingTwilio}
+              data-testid="save-twilio-button"
+              className="flex items-center gap-2 px-5 py-2.5 bg-[#F22F46] text-white text-sm rounded-md hover:bg-red-700 disabled:bg-[#8A8F98] font-medium transition-colors"
+            >
+              {savingTwilio ? "Saving..." : <><CheckCircle size={14} /> Save Twilio Credentials</>}
+            </button>
+            <a href="https://console.twilio.com" target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-sm text-[#8A8F98] hover:text-[#F22F46]">
+              <ExternalLink size={13} /> Open Twilio Console
+            </a>
+          </div>
+        </form>
+      </div>
+
       {/* WhatsApp Webhook Settings */}
-      <div className="bg-white border border-[#E5E7EB] rounded-lg overflow-hidden">
+      <div className="bg-white border border-[#E5E7EB] rounded-lg overflow-hidden mt-5">
         <div className="flex items-center gap-3 px-6 py-4 border-b border-[#E5E7EB] bg-[#F8F9FA]">
           <div className="w-9 h-9 bg-[#25D366]/10 rounded-md flex items-center justify-center">
             <Webhook size={18} className="text-[#25D366]" />

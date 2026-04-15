@@ -16,6 +16,7 @@ import uuid
 import logging
 from io import BytesIO
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+from twilio.rest import Client as TwilioClient
 import asyncio
 import resend
 import openpyxl
@@ -40,6 +41,9 @@ RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_PHONE_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER", "")
 
 # --- DB ---
 client = AsyncIOMotorClient(MONGO_URL)
@@ -133,6 +137,33 @@ async def get_razorpay_keys():
     if settings and settings.get("key_id") and settings.get("key_secret"):
         return settings["key_id"], settings["key_secret"]
     return RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
+
+# --- Twilio settings helper (DB first, fallback to env) ---
+async def get_twilio_settings():
+    settings = await db.app_settings.find_one({"key": "twilio"})
+    if settings and settings.get("account_sid") and settings.get("auth_token") and settings.get("phone_number"):
+        return settings["account_sid"], settings["auth_token"], settings["phone_number"]
+    return TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
+
+async def send_sms_alert(to_phone: str, message: str) -> bool:
+    """Send SMS via Twilio. Silently skips if not configured."""
+    account_sid, auth_token, from_phone = await get_twilio_settings()
+    if not (account_sid and auth_token and from_phone):
+        logger.warning("[Twilio SMS] Not configured — skipping SMS")
+        return False
+    if not to_phone or not to_phone.strip():
+        logger.warning("[Twilio SMS] No recipient phone number — skipping")
+        return False
+    try:
+        def _send():
+            client = TwilioClient(account_sid, auth_token)
+            return client.messages.create(body=message, from_=from_phone, to=to_phone)
+        msg = await asyncio.to_thread(_send)
+        logger.info(f"[Twilio SMS] Sent to {to_phone} — SID: {msg.sid}")
+        return True
+    except Exception as e:
+        logger.error(f"[Twilio SMS] Error sending to {to_phone}: {e}")
+        return False
 
 # --- Institute-scoped query filter ---
 def ifilter(user: dict, extra: dict = None) -> dict:
@@ -437,6 +468,11 @@ class FeeQuery(BaseModel):
 class RazorpaySettings(BaseModel):
     key_id: str
     key_secret: str
+
+class TwilioSettings(BaseModel):
+    account_sid: str
+    auth_token: str
+    phone_number: str
 
 # ========================
 # AUTH ROUTES
@@ -1309,6 +1345,8 @@ async def get_session_qr(session_id: str, user: dict = Depends(get_current_user)
 
 @teacher_router.post("/attendance")
 async def mark_attendance(data: AttendanceMark, user: dict = Depends(get_current_user)):
+    student = await db.students.find_one({"_id": ObjectId(data.student_id)})
+    student_name = student.get("name", "Unknown") if student else "Unknown"
     existing = await db.attendance.find_one({"session_id": data.session_id, "student_id": data.student_id})
     if existing:
         await db.attendance.update_one(
@@ -1316,8 +1354,6 @@ async def mark_attendance(data: AttendanceMark, user: dict = Depends(get_current
             {"$set": {"status": data.status, "marked_at": datetime.now(timezone.utc)}}
         )
     else:
-        student = await db.students.find_one({"_id": ObjectId(data.student_id)})
-        student_name = student.get("name", "Unknown") if student else "Unknown"
         await db.attendance.insert_one({
             "session_id": data.session_id, "student_id": data.student_id,
             "student_name": student_name, "status": data.status,
@@ -1328,6 +1364,15 @@ async def mark_attendance(data: AttendanceMark, user: dict = Depends(get_current
         present = await db.attendance.count_documents({"student_id": data.student_id, "status": "present"})
         pct = round((present / total * 100) if total > 0 else 0, 1)
         await db.students.update_one({"_id": ObjectId(data.student_id)}, {"$set": {"syllabus_percentage": pct}})
+    if data.status == "absent":
+        # Notify linked parent(s) via SMS
+        parents = await db.users.find({"role": "parent", "student_id": data.student_id}).to_list(5)
+        today = datetime.now(timezone.utc).strftime("%d %b %Y")
+        sms_body = f"EduTech LMS: {student_name} was marked ABSENT today ({today}). Please contact the institute for details."
+        for parent in parents:
+            phone = parent.get("phone", "").strip()
+            if phone:
+                asyncio.create_task(send_sms_alert(phone, sms_body))
     return {"message": f"Attendance marked: {data.status}"}
 
 @teacher_router.get("/attendance/{session_id}")
@@ -1679,6 +1724,40 @@ async def save_razorpay_config(data: RazorpaySettings, user: dict = Depends(requ
         upsert=True
     )
     return {"message": "Razorpay settings saved successfully", "configured": True}
+
+@settings_router.get("/twilio")
+async def get_twilio_config(user: dict = Depends(require_admin)):
+    db_settings = await db.app_settings.find_one({"key": "twilio"})
+    if db_settings and db_settings.get("account_sid"):
+        return {
+            "account_sid": db_settings.get("account_sid", ""),
+            "phone_number": db_settings.get("phone_number", ""),
+            "has_auth_token": bool(db_settings.get("auth_token", "")),
+            "configured": bool(db_settings.get("account_sid") and db_settings.get("auth_token") and db_settings.get("phone_number")),
+            "source": "database"
+        }
+    return {
+        "account_sid": TWILIO_ACCOUNT_SID or "",
+        "phone_number": TWILIO_PHONE_NUMBER or "",
+        "has_auth_token": bool(TWILIO_AUTH_TOKEN),
+        "configured": bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER),
+        "source": "environment"
+    }
+
+@settings_router.post("/twilio")
+async def save_twilio_config(data: TwilioSettings, user: dict = Depends(require_admin)):
+    await db.app_settings.update_one(
+        {"key": "twilio"},
+        {"$set": {
+            "key": "twilio",
+            "account_sid": data.account_sid,
+            "auth_token": data.auth_token,
+            "phone_number": data.phone_number,
+            "updated_at": datetime.now(timezone.utc)
+        }},
+        upsert=True
+    )
+    return {"message": "Twilio settings saved successfully", "configured": True}
 
 @settings_router.get("/whatsapp-webhook")
 async def get_whatsapp_info(request: Request, user: dict = Depends(require_admin)):
