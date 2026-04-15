@@ -573,9 +573,36 @@ async def delete_course(course_id: str, user: dict = Depends(require_admin)):
 enquiries_router = APIRouter(prefix="/enquiries", tags=["enquiries"])
 
 @enquiries_router.get("")
-async def list_enquiries(user: dict = Depends(get_current_user)):
-    enquiries = await db.enquiries.find().sort("created_at", -1).to_list(1000)
-    return [serialize_doc(e) for e in enquiries]
+async def list_enquiries(
+    user: dict = Depends(get_current_user),
+    page: int = 1,
+    limit: int = 15,
+    search: Optional[str] = None,
+):
+    import math, re as _re
+    q = {}
+    if search:
+        try:
+            regex = _re.compile(_re.escape(search), _re.IGNORECASE)
+        except Exception:
+            regex = _re.compile(search, _re.IGNORECASE)
+        q["$or"] = [
+            {"student_name": {"$regex": _re.escape(search), "$options": "i"}},
+            {"email": {"$regex": _re.escape(search), "$options": "i"}},
+            {"phone": {"$regex": _re.escape(search), "$options": "i"}},
+            {"city": {"$regex": _re.escape(search), "$options": "i"}},
+        ]
+    total = await db.enquiries.count_documents(q)
+    effective_limit = min(max(1, limit), 500)
+    skip = (max(1, page) - 1) * effective_limit
+    pages = max(1, math.ceil(total / effective_limit))
+    enquiries = await db.enquiries.find(q).sort("created_at", -1).skip(skip).limit(effective_limit).to_list(effective_limit)
+    return {
+        "items": [serialize_doc(e) for e in enquiries],
+        "total": total,
+        "page": max(1, page),
+        "pages": pages,
+    }
 
 @enquiries_router.post("")
 async def create_enquiry(data: EnquiryCreate, user: dict = Depends(get_current_user)):
@@ -756,6 +783,168 @@ async def mark_paid(invoice_id: str, data: PaymentUpdate, user: dict = Depends(r
 async def get_invoice_payments(invoice_id: str, user: dict = Depends(get_current_user)):
     payments = await db.payments.find({"invoice_id": invoice_id}).sort("created_at", -1).to_list(100)
     return [serialize_doc(p) for p in payments]
+
+@finance_router.get("/invoices/{invoice_id}/pdf")
+async def download_invoice_pdf(invoice_id: str, user: dict = Depends(get_current_user)):
+    try:
+        invoice = await db.invoices.find_one({"_id": ObjectId(invoice_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid invoice ID")
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('InvTitle', parent=styles['Normal'], fontSize=22, textColor=rl_colors.HexColor('#002EB8'), fontName='Helvetica-Bold', spaceAfter=4)
+    sub_style = ParagraphStyle('InvSub', parent=styles['Normal'], fontSize=9, textColor=rl_colors.HexColor('#8A8F98'), spaceAfter=16)
+    sec_style = ParagraphStyle('SecHead', parent=styles['Normal'], fontSize=11, textColor=rl_colors.HexColor('#0A0A0A'), fontName='Helvetica-Bold', spaceAfter=8, spaceBefore=16)
+    normal = ParagraphStyle('NormalP', parent=styles['Normal'], fontSize=10)
+    story = []
+    story.append(Paragraph("EduTech LMS", title_style))
+    story.append(Paragraph("Learning Management System", sub_style))
+    story.append(HRFlowable(width="100%", thickness=2, color=rl_colors.HexColor('#002EB8'), spaceAfter=16))
+    # Invoice header info
+    created_at = invoice.get("created_at", datetime.now(timezone.utc))
+    if hasattr(created_at, 'strftime'):
+        date_str = created_at.strftime("%d %B %Y")
+    else:
+        date_str = str(created_at)[:10]
+    status = invoice.get("status", "pending").upper()
+    status_color = '#00C853' if status == "PAID" else ('#002EB8' if status == "PARTIAL" else '#FF2B2B')
+    story.append(Paragraph(f'<font size="16" color="#0A0A0A"><b>INVOICE</b></font>  <font size="11" color="{status_color}">({status})</font>', styles['Normal']))
+    story.append(Spacer(1, 10))
+    meta = [
+        ["Invoice Ref:", invoice_id[-12:].upper()],
+        ["Date:", date_str],
+        ["Student:", invoice.get("student_name", "—")],
+        ["Course:", invoice.get("course_name", "—")],
+    ]
+    meta_t = Table(meta, colWidths=[3.5*cm, 13*cm])
+    meta_t.setStyle(TableStyle([
+        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'), ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
+        ('FONTSIZE', (0,0), (-1,-1), 10), ('TEXTCOLOR', (0,0), (0,-1), rl_colors.HexColor('#8A8F98')),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+    ]))
+    story.append(meta_t)
+    story.append(Spacer(1, 16))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=rl_colors.HexColor('#E5E7EB'), spaceAfter=12))
+    story.append(Paragraph("Fee Breakdown", sec_style))
+    bal = invoice.get('balance', 0)
+    fee_data = [
+        ["Description", "Amount (Rs.)"],
+        ["Base Course Fee", f"Rs. {invoice.get('base_fee', 0):,.2f}"],
+        ["GST (18%)", f"Rs. {invoice.get('gst_amount', 0):,.2f}"],
+        ["Discount Applied", f"- Rs. {invoice.get('discount', 0):,.2f}"],
+        ["Total Payable", f"Rs. {invoice.get('total', 0):,.2f}"],
+        ["Amount Paid", f"Rs. {invoice.get('paid_amount', 0):,.2f}"],
+        ["Balance Due", f"Rs. {bal:,.2f}"],
+    ]
+    fee_t = Table(fee_data, colWidths=[11*cm, 5.5*cm])
+    bal_bg = rl_colors.HexColor('#FF2B2B') if bal > 0 else rl_colors.HexColor('#00C853')
+    fee_t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), rl_colors.HexColor('#002EB8')),
+        ('TEXTCOLOR', (0,0), (-1,0), rl_colors.white),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
+        ('FONTNAME', (0,4), (-1,4), 'Helvetica-Bold'), ('FONTNAME', (0,6), (-1,6), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,-1), 10),
+        ('ALIGN', (1,0), (1,-1), 'RIGHT'),
+        ('BACKGROUND', (0,4), (-1,4), rl_colors.HexColor('#F0F4FF')),
+        ('BACKGROUND', (0,6), (-1,6), bal_bg),
+        ('TEXTCOLOR', (0,6), (-1,6), rl_colors.white),
+        ('ROWBACKGROUNDS', (0,1), (-1,3), [rl_colors.white, rl_colors.HexColor('#F8F9FA')]),
+        ('GRID', (0,0), (-1,-1), 0.5, rl_colors.HexColor('#E5E7EB')),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 8), ('TOPPADDING', (0,0), (-1,-1), 8),
+    ]))
+    story.append(fee_t)
+    story.append(Spacer(1, 30))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=rl_colors.HexColor('#E5E7EB'), spaceAfter=8))
+    footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, textColor=rl_colors.HexColor('#8A8F98'), alignment=1)
+    story.append(Paragraph(f"Generated by EduTech LMS  |  {datetime.now(timezone.utc).strftime('%d %B %Y')}", footer_style))
+    doc.build(story)
+    buf.seek(0)
+    safe_name = invoice.get('student_name', 'student').replace(' ', '_')
+    return StreamingResponse(buf, media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=invoice_{safe_name}_{invoice_id[-8:]}.pdf"})
+
+@finance_router.get("/invoices/{invoice_id}/receipt")
+async def download_receipt_pdf(invoice_id: str, user: dict = Depends(get_current_user)):
+    try:
+        invoice = await db.invoices.find_one({"_id": ObjectId(invoice_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid invoice ID")
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if not invoice.get("paid_amount", 0):
+        raise HTTPException(status_code=400, detail="No payments recorded for this invoice")
+    payments = await db.payments.find({"invoice_id": invoice_id}).sort("created_at", -1).to_list(100)
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('RecTitle', parent=styles['Normal'], fontSize=22, textColor=rl_colors.HexColor('#00C853'), fontName='Helvetica-Bold', spaceAfter=4)
+    sub_style = ParagraphStyle('RecSub', parent=styles['Normal'], fontSize=9, textColor=rl_colors.HexColor('#8A8F98'), spaceAfter=16)
+    sec_style = ParagraphStyle('SecH', parent=styles['Normal'], fontSize=11, textColor=rl_colors.HexColor('#0A0A0A'), fontName='Helvetica-Bold', spaceAfter=8, spaceBefore=16)
+    story = []
+    story.append(Paragraph("EduTech LMS", title_style))
+    story.append(Paragraph("Payment Receipt", sub_style))
+    story.append(HRFlowable(width="100%", thickness=2, color=rl_colors.HexColor('#00C853'), spaceAfter=16))
+    story.append(Paragraph('<font size="16" color="#0A0A0A"><b>PAYMENT RECEIPT</b></font>', styles['Normal']))
+    story.append(Spacer(1, 10))
+    meta = [
+        ["Student:", invoice.get("student_name", "—")],
+        ["Course:", invoice.get("course_name", "—")],
+        ["Total Fee:", f"Rs. {invoice.get('total', 0):,.2f}"],
+        ["Amount Paid:", f"Rs. {invoice.get('paid_amount', 0):,.2f}"],
+        ["Balance:", f"Rs. {invoice.get('balance', 0):,.2f}"],
+        ["Status:", invoice.get("status", "pending").upper()],
+    ]
+    meta_t = Table(meta, colWidths=[3.5*cm, 13*cm])
+    meta_t.setStyle(TableStyle([
+        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'), ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
+        ('FONTSIZE', (0,0), (-1,-1), 10), ('TEXTCOLOR', (0,0), (0,-1), rl_colors.HexColor('#8A8F98')),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+    ]))
+    story.append(meta_t)
+    story.append(Spacer(1, 16))
+    if payments:
+        story.append(HRFlowable(width="100%", thickness=0.5, color=rl_colors.HexColor('#E5E7EB'), spaceAfter=12))
+        story.append(Paragraph("Payment Transactions", sec_style))
+        pay_data = [["#", "Payment ID", "Method", "Amount (Rs.)", "Date"]]
+        for i, p in enumerate(payments, 1):
+            pd_at = p.get("created_at", "")
+            if hasattr(pd_at, 'strftime'):
+                pd_str = pd_at.strftime("%d %b %Y")
+            else:
+                pd_str = str(pd_at)[:10]
+            pay_data.append([
+                str(i),
+                str(p.get("payment_id", ""))[-14:],
+                (p.get("method") or "manual").capitalize(),
+                f"Rs. {p.get('amount', 0):,.2f}",
+                pd_str,
+            ])
+        pay_t = Table(pay_data, colWidths=[0.8*cm, 5*cm, 3*cm, 4*cm, 3.7*cm])
+        pay_t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), rl_colors.HexColor('#00C853')),
+            ('TEXTCOLOR', (0,0), (-1,0), rl_colors.white),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
+            ('FONTSIZE', (0,0), (-1,-1), 9),
+            ('ALIGN', (3,0), (3,-1), 'RIGHT'),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [rl_colors.white, rl_colors.HexColor('#F0FFF4')]),
+            ('GRID', (0,0), (-1,-1), 0.5, rl_colors.HexColor('#E5E7EB')),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 7), ('TOPPADDING', (0,0), (-1,-1), 7),
+        ]))
+        story.append(pay_t)
+    story.append(Spacer(1, 30))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=rl_colors.HexColor('#E5E7EB'), spaceAfter=8))
+    footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, textColor=rl_colors.HexColor('#8A8F98'), alignment=1)
+    story.append(Paragraph(f"Thank you for your payment  |  EduTech LMS  |  {datetime.now(timezone.utc).strftime('%d %B %Y')}", footer_style))
+    doc.build(story)
+    buf.seek(0)
+    safe_name = invoice.get('student_name', 'student').replace(' ', '_')
+    return StreamingResponse(buf, media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=receipt_{safe_name}_{invoice_id[-8:]}.pdf"})
 
 @finance_router.post("/nudge/{student_id}")
 async def send_nudge(student_id: str, user: dict = Depends(require_admin)):

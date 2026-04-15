@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { CreditCard, Webhook, Eye, EyeOff, CheckCircle, Copy, ExternalLink, Info, Key } from "lucide-react";
+import { CreditCard, Webhook, Eye, EyeOff, CheckCircle, Copy, ExternalLink, Info, Key, Database, Download, Upload, Trash2, AlertTriangle, X } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -13,6 +13,14 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
 
   const [webhookInfo, setWebhookInfo] = useState({ webhook_url: "", verify_token: "" });
+
+  // Admin data management state
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [restoreLoading, setRestoreLoading] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [restoreResult, setRestoreResult] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -47,6 +55,71 @@ export default function Settings() {
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
     toast.success("Copied to clipboard!");
+  };
+
+  const handleDownloadBackup = async () => {
+    setBackupLoading(true);
+    try {
+      const res = await axios.get(`${API}/api/admin/backup`, {
+        withCredentials: true,
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      const ts = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `edutech_backup_${ts}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Backup downloaded successfully!");
+    } catch {
+      toast.error("Failed to download backup");
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
+  const handleRestoreFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.name.endsWith(".xlsx")) {
+      toast.error("Please upload a .xlsx file");
+      return;
+    }
+    setRestoreLoading(true);
+    setRestoreResult(null);
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await axios.post(`${API}/api/admin/restore`, formData, {
+        withCredentials: true,
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setRestoreResult(res.data.restored);
+      toast.success(res.data.message || "Restore completed!");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Restore failed");
+    } finally {
+      setRestoreLoading(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (deleteConfirmText !== "DELETE ALL") return;
+    setDeleting(true);
+    try {
+      const res = await axios.delete(`${API}/api/admin/data`, { withCredentials: true });
+      const counts = res.data.deleted || {};
+      const total = Object.values(counts).reduce((s, v) => s + v, 0);
+      toast.success(`Deleted ${total} records across all collections`);
+      setShowDeleteModal(false);
+      setDeleteConfirmText("");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -198,6 +271,123 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+      {/* Admin Data Management */}
+      <div className="bg-white border border-[#E5E7EB] rounded-lg overflow-hidden mt-5">
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-[#E5E7EB] bg-[#F8F9FA]">
+          <div className="w-9 h-9 bg-[#0A0A0A]/10 rounded-md flex items-center justify-center">
+            <Database size={18} className="text-[#0A0A0A]" />
+          </div>
+          <div>
+            <h2 className="font-cabinet font-bold text-base text-[#0A0A0A]">Data Management</h2>
+            <p className="text-xs text-[#8A8F98]">Backup, restore, or permanently delete all institutional data</p>
+          </div>
+        </div>
+        <div className="p-6 space-y-6" data-testid="data-management-section">
+          {/* Backup */}
+          <div className="flex items-start justify-between gap-4 p-4 border border-[#E5E7EB] rounded-lg">
+            <div>
+              <p className="font-medium text-sm text-[#0A0A0A] mb-0.5">Download Backup</p>
+              <p className="text-xs text-[#8A8F98]">Export all enquiries, students, invoices, and attendance to an Excel (.xlsx) file</p>
+            </div>
+            <button onClick={handleDownloadBackup} disabled={backupLoading}
+              data-testid="download-backup-button"
+              className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] text-white text-sm rounded-md hover:bg-[#001A85] disabled:bg-[#8A8F98] font-medium transition-colors shrink-0">
+              <Download size={14} /> {backupLoading ? "Downloading..." : "Backup .xlsx"}
+            </button>
+          </div>
+
+          {/* Restore */}
+          <div className="p-4 border border-[#E5E7EB] rounded-lg">
+            <div className="flex items-start justify-between gap-4 mb-3">
+              <div>
+                <p className="font-medium text-sm text-[#0A0A0A] mb-0.5">Restore from Backup</p>
+                <p className="text-xs text-[#8A8F98]">Upload a previously downloaded .xlsx backup to re-import records (skips duplicates by email)</p>
+              </div>
+              <label className={`flex items-center gap-2 px-4 py-2 border border-[#002EB8] text-[#002EB8] text-sm rounded-md hover:bg-blue-50 font-medium transition-colors cursor-pointer shrink-0 ${restoreLoading ? "opacity-50 pointer-events-none" : ""}`}
+                data-testid="restore-backup-label">
+                <Upload size={14} /> {restoreLoading ? "Restoring..." : "Upload .xlsx"}
+                <input type="file" accept=".xlsx" className="hidden" onChange={handleRestoreFile} disabled={restoreLoading} data-testid="restore-backup-input" />
+              </label>
+            </div>
+            {restoreResult && (
+              <div className="bg-green-50 border border-green-200 rounded-md p-3 text-xs" data-testid="restore-result">
+                <p className="font-medium text-green-800 mb-1">Restore Summary</p>
+                <div className="flex gap-4 flex-wrap">
+                  {Object.entries(restoreResult).map(([k, v]) => (
+                    <span key={k} className="text-green-700 capitalize">{k}: <strong>{v}</strong> inserted</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Delete All */}
+          <div className="p-4 border border-red-200 rounded-lg bg-red-50/50">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-medium text-sm text-[#FF2B2B] mb-0.5">Delete All Data</p>
+                <p className="text-xs text-red-600">
+                  Permanently deletes all enquiries, students, invoices, payments, fee queries, and attendance records.
+                  <strong> User accounts are NOT deleted.</strong> This cannot be undone.
+                </p>
+              </div>
+              <button onClick={() => setShowDeleteModal(true)}
+                data-testid="delete-all-button"
+                className="flex items-center gap-2 px-4 py-2 bg-[#FF2B2B] text-white text-sm rounded-md hover:bg-red-700 font-medium transition-colors shrink-0">
+                <Trash2 size={14} /> Delete All
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg border border-[#E5E7EB] w-full max-w-md shadow-xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={18} className="text-[#FF2B2B]" />
+                <h3 className="font-cabinet font-bold text-base text-[#0A0A0A]">Confirm Data Deletion</h3>
+              </div>
+              <button onClick={() => { setShowDeleteModal(false); setDeleteConfirmText(""); }} className="text-[#8A8F98] hover:text-[#0A0A0A]">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-800">
+                <p className="font-medium mb-1">This action is irreversible!</p>
+                <p className="text-xs">We strongly recommend downloading a backup before proceeding.</p>
+              </div>
+              <div>
+                <p className="text-sm text-[#0A0A0A] mb-2">
+                  Type <strong className="font-mono text-[#FF2B2B]">DELETE ALL</strong> to confirm:
+                </p>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="DELETE ALL"
+                  data-testid="delete-confirm-input"
+                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#FF2B2B]"
+                />
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => { setShowDeleteModal(false); setDeleteConfirmText(""); }}
+                  className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm hover:bg-[#F8F9FA]">
+                  Cancel
+                </button>
+                <button onClick={handleDeleteAll} disabled={deleteConfirmText !== "DELETE ALL" || deleting}
+                  data-testid="confirm-delete-all-button"
+                  className="flex-1 bg-[#FF2B2B] text-white py-2 rounded-md text-sm font-medium hover:bg-red-700 disabled:bg-[#8A8F98] transition-colors">
+                  {deleting ? "Deleting..." : "Delete All Data"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

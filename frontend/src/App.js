@@ -17,6 +17,7 @@ import StudentPortal from "./pages/StudentPortal";
 import AttendanceReports from "./pages/AttendanceReports";
 import Settings from "./pages/Settings";
 import FeeQueries from "./pages/FeeQueries";
+import AttendanceScan from "./pages/AttendanceScan";
 
 const ProtectedRoute = ({ children, roles }) => {
   const { user, loading } = useAuth();
@@ -45,6 +46,7 @@ function AppRoutes() {
       <Toaster position="top-right" richColors expand={false} />
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/attendance/scan" element={<AttendanceScan />} />
         <Route
           path="/teacher/attendance"
           element={

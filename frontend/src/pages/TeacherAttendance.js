@@ -51,8 +51,12 @@ export default function TeacherAttendance() {
   const loadQr = async () => {
     if (!activeSession) return;
     try {
-      const res = await axios.get(`${API}/api/teacher/qr/${activeSession.id}`, { withCredentials: true });
-      setQrUrl(res.data.qr_url);
+      const res = await axios.get(`${API}/api/teacher/qr/${activeSession.id}`, {
+        withCredentials: true,
+        responseType: "blob",
+      });
+      const objectUrl = URL.createObjectURL(res.data);
+      setQrUrl(objectUrl);
       setShowQr(true);
     } catch { toast.error("Failed to load QR"); }
   };

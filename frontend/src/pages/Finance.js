@@ -3,7 +3,7 @@ import axios from "axios";
 import { toast } from "sonner";
 import {
   Plus, Bell, X, CreditCard, Smartphone, Search,
-  ChevronUp, ChevronDown, ChevronsUpDown, Columns, Filter
+  ChevronUp, ChevronDown, ChevronsUpDown, Columns, Filter, FileText, Receipt
 } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -195,8 +195,25 @@ export default function Finance() {
     finally { setMockPayment(null); }
   };
 
-  const togglePayHistory = async (invoiceId) => {
-    if (expandedInvoice === invoiceId) { setExpandedInvoice(null); return; }
+  const downloadPdf = async (invoiceId, type) => {
+    try {
+      const res = await axios.get(`${API}/api/finance/invoices/${invoiceId}/${type}`, {
+        withCredentials: true,
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${type}_${invoiceId.slice(-8)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      const msg = err.response?.data?.detail || `Failed to download ${type}`;
+      toast.error(typeof msg === "string" ? msg : `Failed to download ${type}`);
+    }
+  };
+
+  const togglePayHistory = async (invoiceId) => {    if (expandedInvoice === invoiceId) { setExpandedInvoice(null); return; }
     setExpandedInvoice(invoiceId);
     if (!payHistory[invoiceId]) {
       setPayHistoryLoading((p) => ({ ...p, [invoiceId]: true }));
@@ -465,6 +482,20 @@ export default function Finance() {
                           {expandedInvoice === inv.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                           Hist.
                         </button>
+                        <button onClick={() => downloadPdf(inv.id, "pdf")}
+                          data-testid={`invoice-pdf-btn-${inv.id}`}
+                          className="flex items-center gap-1 text-xs text-[#8A8F98] hover:text-[#002EB8] transition-colors"
+                          title="Download Invoice PDF">
+                          <FileText size={12} /> PDF
+                        </button>
+                        {inv.paid_amount > 0 && (
+                          <button onClick={() => downloadPdf(inv.id, "receipt")}
+                            data-testid={`receipt-btn-${inv.id}`}
+                            className="flex items-center gap-1 text-xs text-[#00C853] hover:underline"
+                            title="Download Receipt">
+                            <Receipt size={12} /> Rcpt
+                          </button>
+                        )}
                         {inv.status !== "paid" && (
                           <button onClick={() => setShowPayForm(inv.id)} data-testid={`record-payment-${inv.id}`}
                             className="flex items-center gap-1 text-xs text-[#002EB8] hover:underline">

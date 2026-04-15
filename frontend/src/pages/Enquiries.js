@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Plus, X, Phone, Mail, GripVertical, Trash2, Pencil, MapPin, Upload, Download, Search } from "lucide-react";
+import { Plus, X, Phone, Mail, GripVertical, Trash2, Pencil, MapPin, Upload, Download, Search, ChevronLeft, ChevronRight } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -163,6 +163,12 @@ export default function Enquiries() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const PAGE_LIMIT = 15;
+
   // Edit
   const [editEnquiry, setEditEnquiry] = useState(null);
   const [editForm, setEditForm] = useState(emptyForm);
@@ -173,6 +179,29 @@ export default function Enquiries() {
   const [csvResults, setCsvResults] = useState(null);
   const csvInputRef = useRef(null);
   const [crmSearch, setCrmSearch] = useState("");
+
+  const handleSearchChange = (val) => {
+    setCrmSearch(val);
+    setPage(1);
+    // Debounce: small timeout to avoid too many requests
+    clearTimeout(window._crmSearchTimer);
+    window._crmSearchTimer = setTimeout(() => {
+      const params = new URLSearchParams({ page: 1, limit: PAGE_LIMIT });
+      if (val) params.set("search", val);
+      setLoading(true);
+      axios.get(`${API}/api/enquiries?${params}`, { withCredentials: true })
+        .then((res) => {
+          if (res.data && res.data.items) {
+            setEnquiries(res.data.items);
+            setTotal(res.data.total);
+            setPages(res.data.pages);
+            setPage(res.data.page);
+          }
+        })
+        .catch(() => toast.error("Search failed"))
+        .finally(() => setLoading(false));
+    }, 400);
+  };
 
   const downloadSampleCSV = () => {
     const csv = [
@@ -219,15 +248,29 @@ export default function Enquiries() {
     toast.success(`Imported ${ok} of ${rows.length} enquiries`);
     setCsvImporting(false);
     e.target.value = "";
+    fetchEnquiries(1);
+    setPage(1);
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchEnquiries(); }, []);
+  useEffect(() => { fetchEnquiries(1); }, []);
 
-  const fetchEnquiries = async () => {
+  const fetchEnquiries = async (p = page) => {
     try {
-      const res = await axios.get(`${API}/api/enquiries`, { withCredentials: true });
-      setEnquiries(res.data);
+      const params = new URLSearchParams({ page: p, limit: PAGE_LIMIT });
+      if (crmSearch) params.set("search", crmSearch);
+      const res = await axios.get(`${API}/api/enquiries?${params}`, { withCredentials: true });
+      // Support both paginated and legacy list response
+      if (res.data && res.data.items) {
+        setEnquiries(res.data.items);
+        setTotal(res.data.total);
+        setPages(res.data.pages);
+        setPage(res.data.page);
+      } else {
+        setEnquiries(res.data);
+        setTotal(res.data.length);
+        setPages(1);
+      }
     } catch { toast.error("Failed to load enquiries"); }
     finally { setLoading(false); }
   };
@@ -260,6 +303,7 @@ export default function Enquiries() {
       } else {
         toast.success("Stage updated");
       }
+      fetchEnquiries(page);
     } catch {
       setEnquiries(prev);
       toast.error("Failed to update stage");
@@ -273,8 +317,9 @@ export default function Enquiries() {
     try {
       await axios.delete(`${API}/api/enquiries/${id}`, { withCredentials: true });
       toast.success("Enquiry deleted");
+      fetchEnquiries(page);
     } catch {
-      fetchEnquiries();
+      fetchEnquiries(page);
       toast.error("Failed to delete");
     }
   };
@@ -283,8 +328,9 @@ export default function Enquiries() {
     e.preventDefault();
     setSaving(true);
     try {
-      const res = await axios.post(`${API}/api/enquiries`, form, { withCredentials: true });
-      setEnquiries((prev) => [res.data, ...prev]);
+      await axios.post(`${API}/api/enquiries`, form, { withCredentials: true });
+      fetchEnquiries(1);
+      setPage(1);
       setShowForm(false);
       setForm(emptyForm);
       toast.success("Enquiry added!");
@@ -322,6 +368,7 @@ export default function Enquiries() {
       } else {
         toast.success("Enquiry updated!");
       }
+      fetchEnquiries(page);
     } catch {
       toast.error("Failed to update enquiry");
     } finally { setEditSaving(false); }
@@ -347,7 +394,9 @@ export default function Enquiries() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-cabinet font-black text-3xl tracking-tighter text-[#0A0A0A]">CRM Pipeline</h1>
-          <p className="text-sm text-[#8A8F98] mt-0.5">{enquiries.length} total enquiries</p>
+          <p className="text-sm text-[#8A8F98] mt-0.5">
+            {crmSearch ? `${total} match${total !== 1 ? "es" : ""}` : `${total} total · Page ${page} of ${pages}`}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={downloadSampleCSV} title="Download CSV template"
@@ -370,7 +419,7 @@ export default function Enquiries() {
       {/* Search Bar */}
       <div className="relative mb-4">
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A8F98]" />
-        <input value={crmSearch} onChange={(e) => setCrmSearch(e.target.value)}
+        <input value={crmSearch} onChange={(e) => handleSearchChange(e.target.value)}
           placeholder="Search by name, email, phone, or location..."
           data-testid="crm-search-input"
           className="w-full pl-9 pr-4 py-2.5 border border-[#E5E7EB] rounded-md text-sm focus:outline-none focus:border-[#002EB8] bg-white" />
@@ -487,6 +536,47 @@ export default function Enquiries() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Pagination Controls */}
+      {!crmSearch && pages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-4 pb-2" data-testid="crm-pagination">
+          <button
+            onClick={() => { const p = Math.max(1, page - 1); setPage(p); fetchEnquiries(p); }}
+            disabled={page <= 1}
+            data-testid="crm-prev-page"
+            className="flex items-center gap-1 px-3 py-1.5 border border-[#E5E7EB] rounded-md text-sm text-[#8A8F98] hover:border-[#002EB8] hover:text-[#002EB8] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <ChevronLeft size={14} /> Prev
+          </button>
+          <div className="flex items-center gap-1">
+            {Array.from({ length: Math.min(pages, 7) }, (_, i) => {
+              let p;
+              if (pages <= 7) p = i + 1;
+              else if (page <= 4) p = i + 1;
+              else if (page >= pages - 3) p = pages - 6 + i;
+              else p = page - 3 + i;
+              return (
+                <button key={p} onClick={() => { setPage(p); fetchEnquiries(p); }}
+                  data-testid={`crm-page-${p}`}
+                  className={`w-8 h-8 rounded text-xs font-mono transition-colors ${p === page ? "bg-[#002EB8] text-white" : "border border-[#E5E7EB] text-[#8A8F98] hover:border-[#002EB8] hover:text-[#002EB8]"}`}>
+                  {p}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            onClick={() => { const p = Math.min(pages, page + 1); setPage(p); fetchEnquiries(p); }}
+            disabled={page >= pages}
+            data-testid="crm-next-page"
+            className="flex items-center gap-1 px-3 py-1.5 border border-[#E5E7EB] rounded-md text-sm text-[#8A8F98] hover:border-[#002EB8] hover:text-[#002EB8] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Next <ChevronRight size={14} />
+          </button>
+          <span className="text-xs text-[#8A8F98] font-mono ml-2">
+            {(page - 1) * PAGE_LIMIT + 1}–{Math.min(page * PAGE_LIMIT, total)} of {total}
+          </span>
         </div>
       )}
     </div>
