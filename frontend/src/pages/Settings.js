@@ -109,7 +109,10 @@ export default function Settings() {
     if (deleteConfirmText !== "DELETE ALL") return;
     setDeleting(true);
     try {
-      const res = await axios.delete(`${API}/api/admin/data`, { withCredentials: true });
+      const res = await axios.delete(`${API}/api/admin/data`, {
+        withCredentials: true,
+        data: { confirm: "DELETE ALL" },
+      });
       const counts = res.data.deleted || {};
       const total = Object.values(counts).reduce((s, v) => s + v, 0);
       toast.success(`Deleted ${total} records across all collections`);

@@ -1680,7 +1680,9 @@ async def download_backup(user: dict = Depends(require_admin)):
         headers={"Content-Disposition": f"attachment; filename=edutech_backup_{ts}.xlsx"})
 
 @admin_router.delete("/data")
-async def delete_all_data(user: dict = Depends(require_admin)):
+async def delete_all_data(data: dict, user: dict = Depends(require_admin)):
+    if data.get("confirm") != "DELETE ALL":
+        raise HTTPException(status_code=400, detail="Confirmation required: send {\"confirm\": \"DELETE ALL\"}")
     counts = {
         "enquiries":  (await db.enquiries.delete_many({})).deleted_count,
         "students":   (await db.students.delete_many({})).deleted_count,

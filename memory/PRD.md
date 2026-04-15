@@ -66,54 +66,55 @@ Build a full-stack Learning Management System (LMS) called EduTech-LMS with:
 - New Enquiry city field + per-enquiry editing
 
 ### Phase 5 (Complete — April 2026)
-- **Issue 1**: Advanced Student Profile Editing
-  - Edit form: Name, Phone, DOB, Branch, Guardian Name/Phone, ID Proof, School/Institute
-  - Payment History tab in Financials (expandable per invoice row)
-  - Backend: StudentUpdate model + new fields (id_proof, institute_name)
-  
-- **Issue 2**: Global Table Sorting, Filtering, Column Toggles
-  - Finance: sort by any column, status filter, student/course search, Columns toggle (Base Fee/GST/Discount)
-  - Students: sortable by Name, Status, Progress columns
-  - AttendanceReports: search by student name + sortable columns
-  - CRM Pipeline: search bar filters cards by name/email/phone/city
+- Advanced Student Profile Editing (id_proof, institute_name)
+- Payment History tab in Finance (expandable per invoice row)
+- Global Table Sorting/Filtering (Finance, Students, AttendanceReports)
+- CRM Search (name/email/phone/city)
+- User Password Resets via Edit User modal
+- Student-Linked User Creation (role=student shows student dropdown)
+- Student Portal Fee Query tab + Admin Fee Queries page (/fee-queries)
+- Code Quality Pass: fixed missing hook deps, array index keys, inline objects
 
-- **Issue 3**: User Management Password Controls
-  - CSV bulk import now sets default password = "User123"
-  - Edit User modal has "Reset Password" optional field
-  - Backend: UserUpdate model with new_password field + hash on update
-
-- **Issue 4**: Student-Linked User Creation
-  - Create User with role=student → shows searchable student dropdown
-  - Links user.student_id → student.user_id bidirectionally
-  - Teacher/Admin/Employer creation unchanged
-
-- **Issue 5**: Student Portal + Admin Fee Queries
-  - Student portal has 5 tabs: Profile, Courses & Attendance, My Fees, Certificate, Fee Query
-  - Admin "Fee Queries" page at /fee-queries (new route + nav item)
-  - Admin can see all submitted queries, filter by status/search, mark as resolved
-  - Backend: GET /api/admin/fee-queries, PATCH /api/admin/fee-queries/:id/resolve
+### Phase 6 (Complete — April 2026)
+- **CRM Pipeline Pagination**: Server-side pagination (15/page), paginated Kanban board with Prev/Next controls, page count, server-side search via ?search= param
+- **Admin Data Management UI** (in Settings): Download Backup (.xlsx from /api/admin/backup), Restore from .xlsx (/api/admin/restore), Delete All with server-validated "DELETE ALL" confirmation modal
+- **Finance Automated PDFs**: Invoice PDF (/api/finance/invoices/{id}/pdf) and Payment Receipt (/api/finance/invoices/{id}/receipt) — ReportLab generated, downloadable from Finance table rows
+- **Portal QR Code Attendance**:
+  - Fixed TeacherAttendance.js QR display (blob responseType instead of JSON)
+  - New /attendance/scan page (AttendanceScan.js) for QR URL landing — auto check-in for logged-in students
+  - Student Portal "QR Check-in" tab with manual session code entry
+  - Backend /api/attendance/qr-checkin endpoint with student roster verification
 
 ## Key API Endpoints (Complete List)
 - POST /api/auth/login, logout, GET /api/auth/me
 - GET/POST /api/branches, /api/courses
-- GET/POST/PUT/DELETE /api/enquiries
+- GET /api/enquiries?page=1&limit=15&search=X (paginated, returns {items,total,page,pages})
+- POST/PUT/DELETE /api/enquiries
 - PATCH /api/enquiries/:id/stage (auto-converts to student)
 - POST /api/enquiries/bulk-import
 - GET/POST/PUT/DELETE /api/users
-- POST /api/users (now handles student_id for linking)
 - GET/POST /api/students, GET/PUT /api/students/:id
 - PATCH /api/students/:id/status
 - POST /api/students/:id/onboard, complete, promote
 - GET /api/students/:id/certificate
 - GET/POST /api/finance/invoices, POST /api/finance/calculate
-- PATCH /api/finance/invoices/:id/pay (now records to payments collection)
-- GET /api/finance/invoices/:id/payments (NEW - payment history)
+- PATCH /api/finance/invoices/:id/pay (records to payments collection)
+- GET /api/finance/invoices/:id/payments (payment history)
+- GET /api/finance/invoices/:id/pdf (Invoice PDF — NEW Phase 6)
+- GET /api/finance/invoices/:id/receipt (Payment Receipt PDF — NEW Phase 6)
 - POST /api/finance/nudge/:student_id
 - GET /api/academic/batches, schedules
+- GET /api/teacher/qr/{session_id} (returns PNG blob)
 - GET /api/teacher/attendance/batch-report
+- POST /api/attendance/qr-checkin (NEW Phase 6 — student QR check-in)
+- GET /api/portal/me, PUT /api/portal/me
+- GET /api/portal/invoices, /api/portal/attendance, /api/portal/certificate
 - POST /api/portal/fee-query
-- GET /api/admin/fee-queries (NEW)
-- PATCH /api/admin/fee-queries/:id/resolve (NEW)
+- GET /api/admin/fee-queries
+- PATCH /api/admin/fee-queries/:id/resolve
+- GET /api/admin/backup (returns .xlsx blob — NEW Phase 6)
+- POST /api/admin/restore (accepts .xlsx file — NEW Phase 6)
+- DELETE /api/admin/data (requires body {confirm: "DELETE ALL"} — NEW Phase 6)
 - GET/POST /api/settings/razorpay
 - POST /api/payments/create-order, verify
 - GET/POST /api/webhooks/whatsapp
@@ -137,6 +138,7 @@ Build a full-stack Learning Management System (LMS) called EduTech-LMS with:
 ## P1/P2 Backlog
 - Gemini 3 Flash AI weekly summary (P1)
 - Resend production key activation (P2)
+- server.py refactor into /routers directory (P2)
 
 ## Refactoring TODO
-- server.py is ~1500 lines; break into /routers directory when next major feature added
+- server.py is ~1850 lines; break into /routers directory when next major feature added
