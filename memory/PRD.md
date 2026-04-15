@@ -152,7 +152,13 @@ Build a full-stack Learning Management System (LMS) called EduTech-LMS with:
 - Added `// eslint-disable-next-line react-hooks/exhaustive-deps` to all intentional fetch-on-mount effects (API/axios are module-level constants, not component state)
 - Confirmed Python `is None` / `is not None` patterns are **correct PEP 8 idioms** — not changed
 
-### Phase 8 (Complete — April 2026)
+### Phase 8 — Bug Fix (April 2026)
+- **Dashboard Multi-Tenancy Isolation Fix**: All dashboard and attendance report queries were missing `ifilter(user)` — fixed across 4 endpoints:
+  - `get_stats()`: student_filter, invoice_filter, enquiries, branches, courses, monthly trends — all now scoped by institute_id
+  - `get_branch_revenue_detail()`: branch lookup, students, invoices — scoped
+  - `generate_weekly_summary()`: invoices, students, enquiries — scoped
+  - `get_batch_attendance_report()`: students — scoped
+  - New institutes now correctly show 0 students, 0 revenue, 0 conversion rate, empty branches, empty trends, empty attendance report
 - **Twilio SMS Parent Alerts**:
   - `twilio==9.10.5` installed and added to requirements.txt
   - `get_twilio_settings()` helper reads from `app_settings` collection (DB-first, env fallback)

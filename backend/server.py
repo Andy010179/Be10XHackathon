@@ -1077,17 +1077,16 @@ dashboard_router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @dashboard_router.get("/stats")
 async def get_stats(branch_id: Optional[str] = None, user: dict = Depends(require_admin_or_employer)):
-    student_filter = {}
-    if branch_id:
-        student_filter["branch_id"] = branch_id
+    iid_filter = ifilter(user)
+    student_filter = ifilter(user, {"branch_id": branch_id}) if branch_id else ifilter(user)
 
     # When filtering by branch, restrict invoices to students in that branch
     if branch_id:
-        branch_students = await db.students.find({"branch_id": branch_id}, {"_id": 1}).to_list(5000)
+        branch_students = await db.students.find(student_filter, {"_id": 1}).to_list(5000)
         branch_student_ids = [str(s["_id"]) for s in branch_students]
-        invoice_filter = {"student_id": {"$in": branch_student_ids}} if branch_student_ids else {"student_id": "__none__"}
+        invoice_filter = ifilter(user, {"student_id": {"$in": branch_student_ids}}) if branch_student_ids else {"_id": None}
     else:
-        invoice_filter = {}
+        invoice_filter = ifilter(user)
 
     invoices = await db.invoices.find(invoice_filter, {"paid_amount": 1, "balance": 1, "student_id": 1}).to_list(10000)
     total_revenue = sum(i.get("paid_amount", 0) for i in invoices)
@@ -1096,20 +1095,20 @@ async def get_stats(branch_id: Optional[str] = None, user: dict = Depends(requir
     total_students = await db.students.count_documents(student_filter)
     active_students = await db.students.count_documents({**student_filter, "status": "active"})
 
-    total_enquiries = await db.enquiries.count_documents({})
-    converted_enquiries = await db.enquiries.count_documents({"stage": "converted"})
+    total_enquiries = await db.enquiries.count_documents(iid_filter)
+    converted_enquiries = await db.enquiries.count_documents(ifilter(user, {"stage": "converted"}))
     conversion_rate = round((converted_enquiries / total_enquiries * 100) if total_enquiries > 0 else 0, 1)
 
-    # Revenue by branch
-    branches = await db.branches.find().to_list(100)
+    # Revenue by branch (scoped to institute)
+    branches = await db.branches.find(iid_filter).to_list(100)
     if branch_id:
         # Show only the selected branch
         selected = next((b for b in branches if str(b["_id"]) == branch_id), None)
         revenue_by_branch = [{"branch": selected.get("name", ""), "branch_id": branch_id, "revenue": total_revenue}] if selected else []
     else:
-        all_students = await db.students.find({}, {"_id": 1, "branch_id": 1}).to_list(5000)
+        all_students = await db.students.find(iid_filter, {"_id": 1, "branch_id": 1}).to_list(5000)
         student_branch_map = {str(s["_id"]): s.get("branch_id") for s in all_students}
-        all_invoices = await db.invoices.find({}, {"paid_amount": 1, "student_id": 1}).to_list(10000)
+        all_invoices = await db.invoices.find(iid_filter, {"paid_amount": 1, "student_id": 1}).to_list(10000)
         branch_revenue_map: dict = {}
         for inv in all_invoices:
             sid = inv.get("student_id", "")
@@ -1122,12 +1121,12 @@ async def get_stats(branch_id: Optional[str] = None, user: dict = Depends(requir
 
     # Enrolments by course category (filtered by branch)
     if branch_id:
-        enrolled_students = await db.students.find({"branch_id": branch_id}, {"course_ids": 1}).to_list(5000)
+        enrolled_students = await db.students.find(student_filter, {"course_ids": 1}).to_list(5000)
         course_id_list = [cid for s in enrolled_students for cid in (s.get("course_ids") or [])]
         course_id_list = list(set(course_id_list))
-        courses = await db.courses.find({"_id": {"$in": [ObjectId(c) for c in course_id_list if c]}}, {"category": 1}).to_list(1000) if course_id_list else []
+        courses = await db.courses.find(ifilter(user, {"_id": {"$in": [ObjectId(c) for c in course_id_list if c]}}), {"category": 1}).to_list(1000) if course_id_list else []
     else:
-        courses = await db.courses.find({}, {"category": 1}).to_list(1000)
+        courses = await db.courses.find(iid_filter, {"category": 1}).to_list(1000)
     category_map = {}
     for c in courses:
         cat = c.get("category", "Other")
@@ -1153,15 +1152,15 @@ async def get_stats(branch_id: Optional[str] = None, user: dict = Depends(requir
 
 @dashboard_router.get("/branch-detail/{branch_id}")
 async def get_branch_revenue_detail(branch_id: str, user: dict = Depends(require_admin_or_employer)):
-    branch = await db.branches.find_one({"_id": ObjectId(branch_id)})
+    branch = await db.branches.find_one(ifilter(user, {"_id": ObjectId(branch_id)}))
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
-    students = await db.students.find({"branch_id": branch_id}).to_list(1000)
+    students = await db.students.find(ifilter(user, {"branch_id": branch_id})).to_list(1000)
     student_map = {str(s["_id"]): s for s in students}
     student_ids = list(student_map.keys())
     if not student_ids:
         return {"branch_name": branch.get("name"), "total_revenue": 0, "total_balance": 0, "items": []}
-    invoices = await db.invoices.find({"student_id": {"$in": student_ids}}).to_list(10000)
+    invoices = await db.invoices.find(ifilter(user, {"student_id": {"$in": student_ids}})).to_list(10000)
     items = []
     for inv in invoices:
         sid = inv.get("student_id", "")
@@ -1188,15 +1187,17 @@ async def get_branch_revenue_detail(branch_id: str, user: dict = Depends(require
 
 @dashboard_router.post("/weekly-summary")
 async def generate_weekly_summary(user: dict = Depends(require_admin_or_employer)):
-    invoices = await db.invoices.find().to_list(10000)
+    iid_filter = ifilter(user)
+    invoices = await db.invoices.find(iid_filter).to_list(10000)
     total_revenue = sum(i.get("paid_amount", 0) for i in invoices)
     outstanding = sum(i.get("balance", 0) for i in invoices)
-    total_students = await db.students.count_documents({})
+    total_students = await db.students.count_documents(iid_filter)
     new_enquiries = await db.enquiries.count_documents({
+        **iid_filter,
         "created_at": {"$gte": datetime.now(timezone.utc) - timedelta(days=7)}
     })
-    total_enq = await db.enquiries.count_documents({})
-    converted = await db.enquiries.count_documents({"stage": "converted"})
+    total_enq = await db.enquiries.count_documents(iid_filter)
+    converted = await db.enquiries.count_documents(ifilter(user, {"stage": "converted"}))
     stats = {
         "total_revenue_INR": total_revenue, "outstanding_balance_INR": outstanding,
         "total_students": total_students, "new_enquiries_this_week": new_enquiries,
@@ -1383,9 +1384,9 @@ async def get_session_attendance(session_id: str, user: dict = Depends(get_curre
 @teacher_router.get("/batch-report")
 async def get_batch_attendance_report(batch_id: str = None, user: dict = Depends(get_current_user)):
     if batch_id and batch_id != "all":
-        students = await db.students.find({"batch_id": batch_id}).to_list(1000)
+        students = await db.students.find(ifilter(user, {"batch_id": batch_id})).to_list(1000)
     else:
-        students = await db.students.find({"status": {"$in": ["active", "completed", "onboarding"]}}).to_list(1000)
+        students = await db.students.find(ifilter(user, {"status": {"$in": ["active", "completed", "onboarding"]}})).to_list(1000)
 
     # Single query for all attendance — avoids N+1 problem
     student_ids = [str(s["_id"]) for s in students]
