@@ -183,9 +183,9 @@ export default function Dashboard() {
 
       {/* KPI Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 border border-[#E5E7EB] divide-x divide-y lg:divide-y-0 divide-[#E5E7EB]">
-        <KPICard title="Total Revenue" value={`₹${((stats?.total_revenue || 0) / 1000).toFixed(0)}K`}
+        <KPICard title="Total Revenue" value={`₹${(stats?.total_revenue || 0).toLocaleString('en-IN')}`}
           subtitle="Total collected payments" icon={DollarSign} color="#002EB8" />
-        <KPICard title="Outstanding" value={`₹${((stats?.outstanding_balance || 0) / 1000).toFixed(0)}K`}
+        <KPICard title="Outstanding" value={`₹${(stats?.outstanding_balance || 0).toLocaleString('en-IN')}`}
           subtitle="Pending balance to collect" icon={TrendingUp} color="#FF2B2B" />
         <KPICard title="Total Students" value={stats?.total_students || 0}
           subtitle={`${stats?.active_students || 0} currently active`} icon={Users} color="#00C853" />
@@ -216,7 +216,7 @@ export default function Dashboard() {
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                 <XAxis dataKey="branch" tick={CHART_TICK_STYLE} />
-                <YAxis tick={CHART_TICK_STYLE} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}K`} />
+                <YAxis tick={CHART_TICK_STYLE} tickFormatter={(v) => `₹${v.toLocaleString('en-IN')}`} />
                 <Tooltip
                   content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
