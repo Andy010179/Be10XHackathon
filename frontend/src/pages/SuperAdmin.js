@@ -17,6 +17,29 @@ export default function SuperAdmin() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [showPw, setShowPw] = useState(false);
+  const [editInst, setEditInst] = useState(null);
+  const [editForm, setEditForm] = useState({ name: "", phone: "", address: "" });
+  const [editSaving, setEditSaving] = useState(false);
+
+  const openEdit = (inst) => {
+    setEditInst(inst);
+    setEditForm({ name: inst.name, phone: inst.phone || "", address: inst.address || "" });
+  };
+
+  const handleEditSave = async (e) => {
+    e.preventDefault();
+    setEditSaving(true);
+    try {
+      await axios.patch(`${API}/api/institutes/${editInst.id}`, editForm, { withCredentials: true });
+      toast.success("Institute updated!");
+      setEditInst(null);
+      fetchInstitutes();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to update institute");
+    } finally { setEditSaving(false); }
+  };
+
+  const setEdit = (f) => (e) => setEditForm((p) => ({ ...p, [f]: e.target.value }));
 
   useEffect(() => { fetchInstitutes(); }, []);
 
@@ -105,6 +128,10 @@ export default function SuperAdmin() {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => openEdit(inst)} data-testid={`edit-institute-${inst.id}`}
+                  className="text-[#8A8F98] hover:text-[#002EB8] transition-colors" title="Edit">
+                  <Pencil size={15} />
+                </button>
                 <button onClick={() => toggleActive(inst)} data-testid={`toggle-${inst.id}`}
                   className="text-[#8A8F98] hover:text-[#0A0A0A] transition-colors" title={inst.is_active ? "Deactivate" : "Activate"}>
                   {inst.is_active ? <ToggleRight size={22} className="text-[#00C853]" /> : <ToggleLeft size={22} />}
@@ -184,6 +211,49 @@ export default function SuperAdmin() {
                 <button type="submit" disabled={saving} data-testid="create-institute-submit"
                   className="flex-1 bg-[#002EB8] text-white py-2 rounded-lg text-sm font-medium hover:bg-[#001A85] disabled:bg-[#8A8F98]">
                   {saving ? "Creating..." : "Create Institute"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Edit Institute Modal */}
+      {editInst && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl border border-[#E5E7EB] w-full max-w-md shadow-xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
+              <div>
+                <h3 className="font-cabinet font-bold text-base text-[#0A0A0A]">Edit Institute</h3>
+                <p className="text-xs text-[#8A8F98] mt-0.5">Code <span className="font-mono">{editInst.code}</span> cannot be changed</p>
+              </div>
+              <button onClick={() => setEditInst(null)} className="text-[#8A8F98] hover:text-[#0A0A0A]"><X size={20} /></button>
+            </div>
+            <form onSubmit={handleEditSave} className="p-6 space-y-4" data-testid="edit-institute-form">
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-widest text-[#8A8F98] mb-1">Institute Name *</label>
+                <input required value={editForm.name} onChange={setEdit("name")} placeholder="Academy Name"
+                  data-testid="edit-inst-name"
+                  className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[#002EB8]" />
+              </div>
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-widest text-[#8A8F98] mb-1">Phone</label>
+                <input value={editForm.phone} onChange={setEdit("phone")} placeholder="+91 98765 43210"
+                  data-testid="edit-inst-phone"
+                  className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[#002EB8]" />
+              </div>
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-widest text-[#8A8F98] mb-1">Address</label>
+                <textarea value={editForm.address} onChange={setEdit("address")} rows={2}
+                  placeholder="Street, city, state..."
+                  data-testid="edit-inst-address"
+                  className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[#002EB8] resize-none" />
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => setEditInst(null)}
+                  className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-lg text-sm hover:bg-[#F8F9FA]">Cancel</button>
+                <button type="submit" disabled={editSaving} data-testid="save-institute-btn"
+                  className="flex-1 bg-[#002EB8] text-white py-2 rounded-lg text-sm font-medium hover:bg-[#001A85] disabled:bg-[#8A8F98]">
+                  {editSaving ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>
