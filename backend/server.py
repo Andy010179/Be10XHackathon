@@ -257,6 +257,7 @@ class EnquiryCreate(BaseModel):
     source: str = "manual"
     notes: str = ""
     city: Optional[str] = None
+    address: Optional[str] = None
 
 class StageUpdate(BaseModel):
     stage: str
@@ -609,7 +610,7 @@ async def create_enquiry(data: EnquiryCreate, user: dict = Depends(get_current_u
     doc = {
         "student_name": data.student_name, "email": data.email, "phone": data.phone,
         "courses": data.courses, "stage": data.stage, "source": data.source,
-        "notes": data.notes, "city": data.city,
+        "notes": data.notes, "city": data.city, "address": data.address,
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }
@@ -1777,6 +1778,32 @@ api_router.include_router(auth_router)
 api_router.include_router(users_router)
 api_router.include_router(branches_router)
 api_router.include_router(courses_router)
+class PublicEnquiryCreate(BaseModel):
+    student_name: str
+    email: str
+    phone: str
+    address: Optional[str] = None
+    city: Optional[str] = None
+    interest: str = ""
+
+@api_router.post("/public/enquiry")
+async def public_submit_enquiry(data: PublicEnquiryCreate):
+    doc = {
+        "student_name": data.student_name.strip(),
+        "email": data.email.strip().lower(),
+        "phone": data.phone.strip(),
+        "address": data.address.strip() if data.address else "",
+        "city": data.city.strip() if data.city else "",
+        "notes": data.interest.strip(),
+        "courses": [],
+        "stage": "new",
+        "source": "web_form",
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    await db.enquiries.insert_one(doc)
+    return {"success": True, "message": "Thank you! Your enquiry has been submitted. We will get in touch with you soon."}
+
 api_router.include_router(enquiries_router)
 api_router.include_router(academic_router)
 api_router.include_router(finance_router)
