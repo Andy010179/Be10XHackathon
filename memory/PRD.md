@@ -152,10 +152,34 @@ Build a full-stack Learning Management System (LMS) called EduTech-LMS with:
 - Added `// eslint-disable-next-line react-hooks/exhaustive-deps` to all intentional fetch-on-mount effects (API/axios are module-level constants, not component state)
 - Confirmed Python `is None` / `is not None` patterns are **correct PEP 8 idioms** — not changed
 
-## P1/P2 Backlog
-- Gemini 3 Flash AI weekly summary (P1)
+### Phase 8 (Complete — April 2026)
+- **Twilio SMS Parent Alerts**:
+  - `twilio==9.10.5` installed and added to requirements.txt
+  - `get_twilio_settings()` helper reads from `app_settings` collection (DB-first, env fallback)
+  - `send_sms_alert(to_phone, message)` async helper — gracefully skips with warning if Twilio not configured
+  - `mark_attendance()` updated: when status=="absent", looks up linked parent users (role=parent, student_id match) and fires async SMS task per parent phone
+  - `GET /api/settings/twilio` — returns current config (account_sid, phone_number, has_auth_token, configured, source)
+  - `POST /api/settings/twilio` — saves Account SID, Auth Token, Phone Number to `app_settings` collection
+  - Settings page `/settings` — new "Twilio SMS Alerts" card with Account SID, Auth Token (show/hide), Phone Number fields; Active/Not configured badge
+- **Gemini 3 Flash AI Weekly Summary**: Already implemented (from prior session). `POST /api/dashboard/weekly-summary` with Emergent LLM Key.
+
+## Key API Endpoints (Complete List — Phase 8 additions)
+- GET /api/settings/twilio — returns Twilio config
+- POST /api/settings/twilio — saves Twilio credentials to DB
+
+## Integrations
+| Service | Status | Notes |
+|---------|--------|-------|
+| Razorpay | Working (mock/real) | Keys managed via /settings page |
+| Resend Email | MOCKED | Needs RESEND_API_KEY in .env |
+| PDF (reportlab) | Working | |
+| WhatsApp Webhook | Working | |
+| Twilio SMS | Ready (awaiting credentials) | Settings UI in /settings page |
+| Gemini 3 Flash | Working | Emergent LLM Key in .env |
+
+## P2 Backlog
 - Resend production key activation (P2)
 - server.py refactor into /routers directory (P2)
 
 ## Refactoring TODO
-- server.py is ~1850 lines; break into /routers directory when next major feature added
+- server.py is ~2350 lines; break into /routers directory when next major feature added
