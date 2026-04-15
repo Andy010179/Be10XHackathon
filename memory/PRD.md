@@ -75,7 +75,24 @@ Build a full-stack Learning Management System (LMS) called EduTech-LMS with:
 - Student Portal Fee Query tab + Admin Fee Queries page (/fee-queries)
 - Code Quality Pass: fixed missing hook deps, array index keys, inline objects
 
-### Phase 6 (Complete — April 2026)
+### Phase 7 (Complete — April 2026)
+- **Multi-Tenant Institute Isolation**:
+  - Super Admin role (superadmin@edutech.com / SuperAdmin@123, no institute code needed)
+  - `institutes` collection with CRUD — Super Admin only
+  - Login accepts optional `institute_code` field — scopes user lookup to that institute
+  - `ifilter(user, extra)` helper applied to ALL MongoDB queries — complete data isolation
+  - Startup migration: all pre-existing data auto-assigned to DEFAULT institute
+  - Super Admin panel at `/super-admin` — create/toggle/delete institutes
+  - Each institute gets its own admin account on creation
+- **Parent Login Portal**:
+  - `parent` role added — users with role=parent have `student_id` field
+  - Admin can create parent accounts in UserManagement → Parent Accounts tab
+  - Student portal profile tab has "Parent / Guardian Access" invite section
+  - Backend: POST /api/portal/invite-parent, GET/POST/DELETE /api/admin/parents
+  - Parent portal at `/parent-portal` — Overview, Attendance, Fees, Academics tabs
+  - Backend: GET /api/parent/dashboard, /attendance, /fees, /academic
+  - Low attendance notification helper (triggers < 75% → emails linked parents via Resend)
+  - Parent email notifications MOCKED (Resend key not configured)
 - **CRM Pipeline Pagination**: Server-side pagination (15/page), paginated Kanban board with Prev/Next controls, page count, server-side search via ?search= param
 - **Admin Data Management UI** (in Settings): Download Backup (.xlsx from /api/admin/backup), Restore from .xlsx (/api/admin/restore), Delete All with server-validated "DELETE ALL" confirmation modal
 - **Finance Automated PDFs**: Invoice PDF (/api/finance/invoices/{id}/pdf) and Payment Receipt (/api/finance/invoices/{id}/receipt) — ReportLab generated, downloadable from Finance table rows
