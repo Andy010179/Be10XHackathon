@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends
+from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -18,6 +18,13 @@ from io import BytesIO
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 import asyncio
 import resend
+import openpyxl
+import qrcode
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors as rl_colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1031,9 +1038,19 @@ async def get_teacher_students(user: dict = Depends(get_current_user)):
 
 @teacher_router.get("/qr/{session_id}")
 async def get_session_qr(session_id: str, user: dict = Depends(get_current_user)):
-    qr_data = f"EDUTECH-SESSION-{session_id}"
-    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={qr_data}&bgcolor=ffffff&color=002EB8"
-    return {"qr_url": qr_url, "session_id": session_id, "qr_data": qr_data}
+    frontend_url = os.environ.get("REACT_APP_BACKEND_URL", "").replace("/api", "").rstrip("/")
+    # Use the public app URL for QR scanning
+    base = os.environ.get("APP_FRONTEND_URL", frontend_url or "https://skill-academy-77.preview.emergentagent.com")
+    scan_url = f"{base}/attendance/scan?session={session_id}"
+    qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=8, border=4)
+    qr.add_data(scan_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    from fastapi.responses import Response as FastAPIResponse
+    return FastAPIResponse(content=buf.read(), media_type="image/png")
 
 @teacher_router.post("/attendance")
 async def mark_attendance(data: AttendanceMark, user: dict = Depends(get_current_user)):
@@ -1434,6 +1451,135 @@ async def resolve_fee_query(query_id: str, user: dict = Depends(require_admin)):
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
     return serialize_doc(query)
+
+@admin_router.get("/backup")
+async def download_backup(user: dict = Depends(require_admin)):
+    wb = openpyxl.Workbook()
+    # Sheet 1: Enquiries/Leads
+    ws = wb.active
+    ws.title = "Enquiries"
+    ws.append(["ID", "Name", "Email", "Phone", "City", "Source", "Stage", "Notes", "Created At"])
+    for e in await db.enquiries.find().to_list(10000):
+        ws.append([str(e.get("_id")), e.get("student_name",""), e.get("email",""), e.get("phone",""),
+                   e.get("city",""), e.get("source",""), e.get("stage",""), e.get("notes",""), str(e.get("created_at",""))])
+    # Sheet 2: Students
+    ws2 = wb.create_sheet("Students")
+    ws2.append(["ID", "Name", "Email", "Phone", "Branch", "Status", "DOB", "Guardian Name", "Guardian Phone", "ID Proof", "Institute", "Enrollment Date"])
+    for s in await db.students.find().to_list(10000):
+        ws2.append([str(s.get("_id")), s.get("name",""), s.get("email",""), s.get("phone",""),
+                    s.get("branch_id",""), s.get("status",""), s.get("dob",""), s.get("guardian_name",""),
+                    s.get("guardian_phone",""), s.get("id_proof",""), s.get("institute_name",""), str(s.get("enrollment_date",""))])
+    # Sheet 3: Invoices
+    ws3 = wb.create_sheet("Invoices")
+    ws3.append(["ID", "Student Name", "Course Name", "Base Fee", "GST", "Discount", "Total", "Paid", "Balance", "Status"])
+    for inv in await db.invoices.find().to_list(10000):
+        ws3.append([str(inv.get("_id")), inv.get("student_name",""), inv.get("course_name",""),
+                    inv.get("base_fee",0), inv.get("gst_amount",0), inv.get("discount",0),
+                    inv.get("total",0), inv.get("paid_amount",0), inv.get("balance",0), inv.get("status","")])
+    # Sheet 4: Attendance
+    ws4 = wb.create_sheet("Attendance")
+    ws4.append(["Session ID", "Student ID", "Student Name", "Status", "Method", "Date"])
+    for a in await db.attendance.find().to_list(50000):
+        ws4.append([a.get("session_id",""), a.get("student_id",""), a.get("student_name",""),
+                    a.get("status",""), a.get("method","manual"), str(a.get("created_at",""))])
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return StreamingResponse(buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=edutech_backup_{ts}.xlsx"})
+
+@admin_router.delete("/data")
+async def delete_all_data(user: dict = Depends(require_admin)):
+    counts = {
+        "enquiries":  (await db.enquiries.delete_many({})).deleted_count,
+        "students":   (await db.students.delete_many({})).deleted_count,
+        "invoices":   (await db.invoices.delete_many({})).deleted_count,
+        "payments":   (await db.payments.delete_many({})).deleted_count,
+        "fee_queries":(await db.fee_queries.delete_many({})).deleted_count,
+        "attendance": (await db.attendance.delete_many({})).deleted_count,
+    }
+    return {"deleted": counts, "message": "All CRM and student data has been deleted"}
+
+@admin_router.post("/restore")
+async def restore_from_backup(file: UploadFile = File(...), user: dict = Depends(require_admin)):
+    content = await file.read()
+    try:
+        wb = openpyxl.load_workbook(BytesIO(content))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid .xlsx file")
+    results = {}
+    if "Enquiries" in wb.sheetnames:
+        ws = wb["Enquiries"]
+        hdrs = [c.value for c in ws[1]]
+        inserted = 0
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            d = dict(zip(hdrs, row))
+            if not d.get("Email"):
+                continue
+            if not await db.enquiries.find_one({"email": str(d.get("Email","")).lower()}):
+                await db.enquiries.insert_one({
+                    "student_name": d.get("Name",""), "email": str(d.get("Email","")).lower(),
+                    "phone": str(d.get("Phone","")), "city": d.get("City",""),
+                    "source": d.get("Source","manual"), "stage": d.get("Stage","new"),
+                    "notes": d.get("Notes",""), "created_at": datetime.now(timezone.utc),
+                })
+                inserted += 1
+        results["enquiries"] = inserted
+    if "Students" in wb.sheetnames:
+        ws = wb["Students"]
+        hdrs = [c.value for c in ws[1]]
+        inserted = 0
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            d = dict(zip(hdrs, row))
+            if not d.get("Email"):
+                continue
+            if not await db.students.find_one({"email": str(d.get("Email","")).lower()}):
+                await db.students.insert_one({
+                    "name": d.get("Name",""), "email": str(d.get("Email","")).lower(),
+                    "phone": str(d.get("Phone","")), "branch_id": d.get("Branch",""),
+                    "status": d.get("Status","onboarding"), "dob": d.get("DOB",""),
+                    "guardian_name": d.get("Guardian Name",""), "guardian_phone": str(d.get("Guardian Phone","")),
+                    "id_proof": d.get("ID Proof",""), "institute_name": d.get("Institute",""),
+                    "created_at": datetime.now(timezone.utc),
+                })
+                inserted += 1
+        results["students"] = inserted
+    return {"restored": results, "message": f"Restore complete: {results}"}
+
+# QR scan check-in endpoint (for portal students)
+@api_router.post("/attendance/qr-checkin")
+async def qr_checkin(data: dict, user: dict = Depends(get_current_user)):
+    session_id = data.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    if user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="Only students can check in via QR")
+    student_uid = user.get("student_id")
+    if not student_uid:
+        student = await db.students.find_one({"user_id": user.get("id") or str(user.get("_id", ""))})
+        if student:
+            student_uid = str(student["_id"])
+        else:
+            raise HTTPException(status_code=403, detail="No student record linked to this account")
+    try:
+        session = await db.schedules.find_one({"_id": ObjectId(session_id)})
+    except Exception:
+        session = None
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    existing = await db.attendance.find_one({"session_id": session_id, "student_id": student_uid})
+    if existing:
+        return {"already_marked": True, "status": existing.get("status"), "message": "Attendance already recorded"}
+    student_doc = await db.students.find_one({"_id": ObjectId(student_uid)})
+    student_name = (student_doc or {}).get("name", user.get("name", "Student"))
+    await db.attendance.insert_one({
+        "session_id": session_id, "student_id": student_uid, "student_name": student_name,
+        "batch_id": session.get("batch_id", ""), "status": "present",
+        "method": "qr_scan", "created_at": datetime.now(timezone.utc),
+    })
+    return {"success": True, "message": f"Welcome, {student_name}! Marked Present."}
 
 # ========================
 api_router.include_router(auth_router)
