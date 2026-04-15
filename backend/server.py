@@ -96,6 +96,14 @@ async def get_current_user(request: Request) -> dict:
             raise HTTPException(status_code=401, detail="User not found")
         user["_id"] = str(user["_id"])
         user.pop("password_hash", None)
+        # Attach institute name for display
+        iid = user.get("institute_id")
+        if iid:
+            try:
+                inst = await db.institutes.find_one({"_id": ObjectId(iid)}, {"name": 1})
+                user["institute_name"] = inst.get("name", "") if inst else ""
+            except Exception:
+                user["institute_name"] = ""
         return user
     except pyjwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -520,10 +528,19 @@ async def login(data: UserLogin, response: Response):
     refresh_token = create_refresh_token(user_id)
     response.set_cookie("access_token", access_token, httponly=True, secure=False, samesite="lax", max_age=28800)
     response.set_cookie("refresh_token", refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800)
+    # Resolve institute name
+    inst_name = ""
+    if user.get("institute_id"):
+        try:
+            inst_doc = await db.institutes.find_one({"_id": ObjectId(user["institute_id"])}, {"name": 1})
+            inst_name = inst_doc.get("name", "") if inst_doc else ""
+        except Exception:
+            pass
     return {
         "id": user_id, "name": user.get("name"), "email": email,
         "role": user.get("role", "student"),
         "institute_id": user.get("institute_id"),
+        "institute_name": inst_name,
     }
 
 @auth_router.post("/logout")

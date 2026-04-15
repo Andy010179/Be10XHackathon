@@ -129,6 +129,24 @@ export default function Layout({ children }) {
           >
             <Menu size={22} />
           </button>
+
+          {/* Institute name — shown for all non-super_admin roles */}
+          {user?.role === "super_admin" ? (
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 bg-[#0A0A0A] rounded flex items-center justify-center">
+                <Shield size={13} className="text-white" />
+              </div>
+              <span className="font-cabinet font-bold text-sm text-[#0A0A0A] tracking-tight">Super Admin Console</span>
+            </div>
+          ) : user?.institute_name ? (
+            <div className="flex items-center gap-2" data-testid="header-institute-name">
+              <div className="w-7 h-7 bg-[#002EB8]/10 rounded flex items-center justify-center">
+                <Building2 size={13} className="text-[#002EB8]" />
+              </div>
+              <span className="font-cabinet font-bold text-sm text-[#0A0A0A] tracking-tight">{user.institute_name}</span>
+            </div>
+          ) : null}
+
           <div className="flex-1" />
           <div className="flex items-center gap-2 text-sm text-[#8A8F98] font-satoshi">
             <span>Welcome,</span>
