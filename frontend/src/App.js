@@ -19,6 +19,8 @@ import Settings from "./pages/Settings";
 import FeeQueries from "./pages/FeeQueries";
 import AttendanceScan from "./pages/AttendanceScan";
 import PublicEnquiryForm from "./pages/PublicEnquiryForm";
+import SuperAdmin from "./pages/SuperAdmin";
+import ParentPortal from "./pages/ParentPortal";
 
 const ProtectedRoute = ({ children, roles }) => {
   const { user, loading } = useAuth();
@@ -49,6 +51,15 @@ function AppRoutes() {
         <Route path="/login" element={<Login />} />
         <Route path="/attendance/scan" element={<AttendanceScan />} />
         <Route path="/enquiry" element={<PublicEnquiryForm />} />
+        <Route path="/parent-portal" element={<ParentPortal />} />
+        <Route
+          path="/super-admin"
+          element={
+            <ProtectedRoute roles={["super_admin"]}>
+              <Layout><SuperAdmin /></Layout>
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/teacher/attendance"
           element={

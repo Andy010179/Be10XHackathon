@@ -111,6 +111,25 @@ export default function StudentPortal() {
     finally { setQuerySending(false); }
   };
 
+  // Parent linking
+  const [parentEmail, setParentEmail] = useState("");
+  const [parentName, setParentName] = useState("");
+  const [invitingParent, setInvitingParent] = useState(false);
+
+  const handleInviteParent = async (e) => {
+    e.preventDefault();
+    if (!parentEmail.trim()) return;
+    setInvitingParent(true);
+    try {
+      const res = await axios.post(`${API}/api/portal/invite-parent`, { email: parentEmail.trim(), name: parentName.trim() || "Guardian" }, { withCredentials: true });
+      toast.success(res.data.message || "Parent invited!");
+      setParentEmail("");
+      setParentName("");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to invite parent");
+    } finally { setInvitingParent(false); }
+  };
+
   const handleLogout = async () => {
     await logout();
     navigate("/login");
@@ -343,6 +362,26 @@ export default function StudentPortal() {
               </button>
             </div>
           )}
+
+          {/* Parent / Guardian Access */}
+          <div className="bg-white border border-[#E5E7EB] rounded-lg p-5 mt-4">
+            <h4 className="font-cabinet font-bold text-sm mb-1 text-[#0A0A0A]">Parent / Guardian Access</h4>
+            <p className="text-xs text-[#8A8F98] mb-4">Grant a parent or guardian access to monitor your attendance, fees, and academic progress.</p>
+            <form onSubmit={handleInviteParent} className="flex flex-col sm:flex-row gap-2" data-testid="invite-parent-form">
+              <input type="text" value={parentName} onChange={(e) => setParentName(e.target.value)}
+                placeholder="Guardian Name" className="border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8] sm:w-40" />
+              <input type="email" value={parentEmail} onChange={(e) => setParentEmail(e.target.value)}
+                placeholder="Parent email address" required
+                data-testid="parent-email-input"
+                className="flex-1 border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+              <button type="submit" disabled={invitingParent || !parentEmail.trim()}
+                data-testid="invite-parent-submit"
+                className="px-4 py-2 bg-[#0A0A0A] text-white text-sm rounded-md hover:bg-black disabled:bg-[#8A8F98] font-medium whitespace-nowrap">
+                {invitingParent ? "Sending..." : "Send Invite"}
+              </button>
+            </form>
+            <p className="text-xs text-[#8A8F98] mt-2">Parent will receive login credentials via email with a temporary password.</p>
+          </div>
         </div>
       )}
 

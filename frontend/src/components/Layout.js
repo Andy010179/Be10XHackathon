@@ -4,43 +4,39 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   LayoutDashboard, Users, GraduationCap, DollarSign,
   BookOpen, Menu, X, LogOut, ChevronRight, Building2,
-  Users2, UserCog, BarChart2, Settings, MessageSquare
+  Users2, UserCog, BarChart2, Settings, MessageSquare, Shield
 } from "lucide-react";
 
 const navItems = [
-  { path: "/dashboard",           label: "Dashboard",         icon: LayoutDashboard, roles: ["admin", "employer"] },
-  { path: "/enquiries",           label: "Students Pipeline",      icon: Users,            roles: ["admin"] },
-  { path: "/academic",            label: "Academic",          icon: BookOpen,         roles: ["admin"] },
-  { path: "/courses",             label: "Courses",           icon: GraduationCap,    roles: ["admin"] },
-  { path: "/finance",             label: "Finance",           icon: DollarSign,       roles: ["admin"] },
-  { path: "/students",            label: "Students",          icon: Users2,           roles: ["admin"] },
-  { path: "/attendance-reports",  label: "Attendance Reports",icon: BarChart2,        roles: ["admin"] },
-  { path: "/fee-queries",         label: "Fee Queries",       icon: MessageSquare,    roles: ["admin"] },
-  { path: "/users",               label: "User Management",   icon: UserCog,          roles: ["admin"] },
-  { path: "/settings",            label: "Settings",          icon: Settings,         roles: ["admin"] },
-  { path: "/portal",              label: "My Portal",         icon: LayoutDashboard,  roles: ["student"] },
+  { path: "/super-admin",          label: "Institutes",          icon: Shield,           roles: ["super_admin"] },
+  { path: "/dashboard",            label: "Dashboard",           icon: LayoutDashboard,  roles: ["admin", "employer"] },
+  { path: "/enquiries",            label: "Students Pipeline",   icon: Users,            roles: ["admin"] },
+  { path: "/academic",             label: "Academic",            icon: BookOpen,         roles: ["admin"] },
+  { path: "/courses",              label: "Courses",             icon: GraduationCap,    roles: ["admin"] },
+  { path: "/finance",              label: "Finance",             icon: DollarSign,       roles: ["admin"] },
+  { path: "/students",             label: "Students",            icon: Users2,           roles: ["admin"] },
+  { path: "/attendance-reports",   label: "Attendance Reports",  icon: BarChart2,        roles: ["admin"] },
+  { path: "/fee-queries",          label: "Fee Queries",         icon: MessageSquare,    roles: ["admin"] },
+  { path: "/users",                label: "User Management",     icon: UserCog,          roles: ["admin"] },
+  { path: "/settings",             label: "Settings",            icon: Settings,         roles: ["admin"] },
+  { path: "/portal",               label: "My Portal",           icon: LayoutDashboard,  roles: ["student"] },
 ];
 
-export default function Layout() {
+const roleColors = {
+  admin: "bg-[#002EB8] text-white",
+  super_admin: "bg-[#0A0A0A] text-white",
+  employer: "bg-[#00C853] text-white",
+  teacher: "bg-[#FFD600] text-[#0A0A0A]",
+  student: "bg-[#8A8F98] text-white",
+  parent: "bg-purple-600 text-white",
+};
+
+export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const handleLogout = async () => {
-    await logout();
-    navigate("/login");
-  };
-
-  const visibleNav = navItems.filter((item) =>
-    item.roles.includes(user?.role)
-  );
-
-  const roleColors = {
-    admin: "bg-[#002EB8] text-white",
-    employer: "bg-[#00C853] text-white",
-    teacher: "bg-[#FFD600] text-[#0A0A0A]",
-    student: "bg-[#8A8F98] text-white",
-  };
+  const handleLogout = async () => { await logout(); navigate("/login"); };
+  const visibleNav = navItems.filter((item) => item.roles.includes(user?.role));
 
   return (
     <div className="flex min-h-screen bg-[#F8F9FA]">
@@ -142,7 +138,7 @@ export default function Layout() {
 
         {/* Page content */}
         <main className="flex-1 overflow-auto">
-          <Outlet />
+          {children || <Outlet />}
         </main>
       </div>
     </div>

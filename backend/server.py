@@ -99,12 +99,12 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 async def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    if user.get("role") not in ["admin"]:
+    if user.get("role") not in ["admin", "super_admin"]:
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
 async def require_admin_or_employer(user: dict = Depends(get_current_user)) -> dict:
-    if user.get("role") not in ["admin", "employer"]:
+    if user.get("role") not in ["admin", "super_admin", "employer"]:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     return user
 
@@ -134,13 +134,49 @@ async def get_razorpay_keys():
         return settings["key_id"], settings["key_secret"]
     return RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
 
+# --- Institute-scoped query filter ---
+def ifilter(user: dict, extra: dict = None) -> dict:
+    """Build an institute-scoped query. Super admin sees all data."""
+    if user.get("role") == "super_admin":
+        return extra or {}
+    iid = user.get("institute_id")
+    q = {"institute_id": iid} if iid else {}
+    if extra:
+        q.update(extra)
+    return q
+
+async def require_super_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    return user
+
+async def require_admin_or_super(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") not in ["admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+# --- Parent notification helper ---
+async def notify_parent(parent_email: str, parent_name: str, student_name: str, subject: str, html_body: str) -> bool:
+    if not RESEND_API_KEY:
+        logger.warning(f"[Parent Notify] No RESEND key — skipping: {parent_email} | {subject}")
+        return False
+    resend.api_key = RESEND_API_KEY
+    try:
+        params = {"from": f"EduTech LMS <{SENDER_EMAIL}>", "to": [parent_email], "subject": subject, "html": html_body}
+        await asyncio.to_thread(resend.Emails.send, params)
+        return True
+    except Exception as e:
+        logger.error(f"Parent notification error: {e}")
+        return False
+
 # --- Auto-create student from enquiry on conversion ---
 async def auto_create_student_from_enquiry(enquiry: dict):
     """Creates a student record from an enquiry. Returns (created: bool, student_id: str)."""
     email = enquiry.get("email", "").lower()
     if not email:
         return False, ""
-    existing = await db.students.find_one({"email": email})
+    iid = enquiry.get("institute_id")
+    existing = await db.students.find_one({"email": email, "institute_id": iid} if iid else {"email": email})
     if existing:
         return False, str(existing["_id"])
     student_doc = {
@@ -150,7 +186,7 @@ async def auto_create_student_from_enquiry(enquiry: dict):
         "branch_id": None,
         "course_ids": enquiry.get("courses", []),
         "dob": None,
-        "address": enquiry.get("city", ""),
+        "address": enquiry.get("address") or enquiry.get("city", ""),
         "guardian_name": "",
         "guardian_phone": "",
         "status": "onboarding",
@@ -160,6 +196,7 @@ async def auto_create_student_from_enquiry(enquiry: dict):
         "notes": enquiry.get("notes", ""),
         "source": enquiry.get("source", "crm"),
         "enquiry_id": str(enquiry["_id"]),
+        "institute_id": iid,
         "enrollment_date": datetime.now(timezone.utc).isoformat(),
         "created_at": datetime.now(timezone.utc),
     }
@@ -236,6 +273,28 @@ class UserCreate(BaseModel):
 class UserLogin(BaseModel):
     email: str
     password: str
+    institute_code: Optional[str] = None
+
+class InstituteCreate(BaseModel):
+    name: str
+    code: str
+    admin_name: str
+    admin_email: str
+    admin_password: str
+    phone: Optional[str] = None
+    address: Optional[str] = None
+
+class InstituteUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class ParentInvite(BaseModel):
+    parent_name: str
+    parent_email: str
+    parent_phone: Optional[str] = None
+    student_id: str
 
 class BranchCreate(BaseModel):
     name: str
@@ -406,16 +465,30 @@ async def register(data: UserCreate, response: Response):
 
 @auth_router.post("/login")
 async def login(data: UserLogin, response: Response):
-    email = data.email.lower()
-    user = await db.users.find_one({"email": email})
+    email = data.email.lower().strip()
+    institute_code = (data.institute_code or "").strip().upper()
+    if institute_code and institute_code != "SUPER":
+        institute = await db.institutes.find_one({"code": institute_code, "is_active": True})
+        if not institute:
+            raise HTTPException(status_code=401, detail="Invalid institute code")
+        institute_id = str(institute["_id"])
+        user = await db.users.find_one({"email": email, "institute_id": institute_id})
+    else:
+        user = await db.users.find_one({"email": email})
     if not user or not verify_password(data.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if user.get("is_active") is False:
+        raise HTTPException(status_code=401, detail="Account is inactive")
     user_id = str(user["_id"])
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
     response.set_cookie("access_token", access_token, httponly=True, secure=False, samesite="lax", max_age=28800)
     response.set_cookie("refresh_token", refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800)
-    return {"id": user_id, "name": user.get("name"), "email": email, "role": user.get("role", "student")}
+    return {
+        "id": user_id, "name": user.get("name"), "email": email,
+        "role": user.get("role", "student"),
+        "institute_id": user.get("institute_id"),
+    }
 
 @auth_router.post("/logout")
 async def logout(response: Response):
@@ -453,13 +526,14 @@ users_router = APIRouter(prefix="/users", tags=["users"])
 
 @users_router.get("")
 async def list_users(user: dict = Depends(require_admin)):
-    users = await db.users.find({}, {"password_hash": 0}).to_list(1000)
+    users = await db.users.find(ifilter(user), {"password_hash": 0}).to_list(1000)
     return [serialize_doc(u) for u in users]
 
 @users_router.post("")
 async def create_user(data: UserCreate, user: dict = Depends(require_admin)):
     name = data.name
     email = data.email.lower()
+    iid = user.get("institute_id")
     if data.role == "student" and data.student_id:
         try:
             student = await db.students.find_one({"_id": ObjectId(data.student_id)})
@@ -468,7 +542,7 @@ async def create_user(data: UserCreate, user: dict = Depends(require_admin)):
                 email = student.get("email", email).lower()
         except Exception:
             pass
-    existing = await db.users.find_one({"email": email})
+    existing = await db.users.find_one({"email": email, "institute_id": iid} if iid else {"email": email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     user_doc = {
@@ -476,6 +550,7 @@ async def create_user(data: UserCreate, user: dict = Depends(require_admin)):
         "password_hash": hash_password(data.password),
         "role": data.role, "branch_id": data.branch_id,
         "student_id": data.student_id if data.role == "student" else None,
+        "institute_id": iid,
         "created_at": datetime.now(timezone.utc),
     }
     result = await db.users.insert_one(user_doc)
@@ -491,7 +566,7 @@ async def create_user(data: UserCreate, user: dict = Depends(require_admin)):
 
 @users_router.delete("/{user_id}")
 async def delete_user(user_id: str, user: dict = Depends(require_admin)):
-    await db.users.delete_one({"_id": ObjectId(user_id)})
+    await db.users.delete_one(ifilter(user, {"_id": ObjectId(user_id)}))
     return {"message": "User deleted"}
 
 @users_router.put("/{user_id}")
@@ -505,7 +580,7 @@ async def update_user(user_id: str, data: UserUpdate, user: dict = Depends(requi
         update["password_hash"] = hash_password(data.new_password)
     if not update:
         raise HTTPException(status_code=400, detail="No fields to update")
-    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": update})
+    await db.users.update_one(ifilter(user, {"_id": ObjectId(user_id)}), {"$set": update})
     updated = await db.users.find_one({"_id": ObjectId(user_id)}, {"password_hash": 0})
     return serialize_doc(updated)
 
@@ -516,23 +591,23 @@ branches_router = APIRouter(prefix="/branches", tags=["branches"])
 
 @branches_router.get("")
 async def list_branches(user: dict = Depends(get_current_user)):
-    branches = await db.branches.find().to_list(1000)
+    branches = await db.branches.find(ifilter(user)).to_list(1000)
     return [serialize_doc(b) for b in branches]
 
 @branches_router.post("")
 async def create_branch(data: BranchCreate, user: dict = Depends(require_admin)):
-    doc = {"name": data.name, "location": data.location, "created_at": datetime.now(timezone.utc)}
+    doc = {"name": data.name, "location": data.location, "institute_id": user.get("institute_id"), "created_at": datetime.now(timezone.utc)}
     result = await db.branches.insert_one(doc)
     return serialize_doc({**doc, "_id": result.inserted_id})
 
 @branches_router.put("/{branch_id}")
 async def update_branch(branch_id: str, data: BranchCreate, user: dict = Depends(require_admin)):
-    await db.branches.update_one({"_id": ObjectId(branch_id)}, {"$set": {"name": data.name, "location": data.location}})
+    await db.branches.update_one(ifilter(user, {"_id": ObjectId(branch_id)}), {"$set": {"name": data.name, "location": data.location}})
     return serialize_doc(await db.branches.find_one({"_id": ObjectId(branch_id)}))
 
 @branches_router.delete("/{branch_id}")
 async def delete_branch(branch_id: str, user: dict = Depends(require_admin)):
-    await db.branches.delete_one({"_id": ObjectId(branch_id)})
+    await db.branches.delete_one(ifilter(user, {"_id": ObjectId(branch_id)}))
     return {"message": "Branch deleted"}
 
 # ========================
@@ -542,7 +617,7 @@ courses_router = APIRouter(prefix="/courses", tags=["courses"])
 
 @courses_router.get("")
 async def list_courses(user: dict = Depends(get_current_user)):
-    courses = await db.courses.find().to_list(1000)
+    courses = await db.courses.find(ifilter(user)).to_list(1000)
     return [serialize_doc(c) for c in courses]
 
 @courses_router.post("")
@@ -550,6 +625,7 @@ async def create_course(data: CourseCreate, user: dict = Depends(require_admin))
     doc = {
         "name": data.name, "category": data.category, "branch_id": data.branch_id,
         "base_fee": data.base_fee, "teacher_id": data.teacher_id,
+        "institute_id": user.get("institute_id"),
         "created_at": datetime.now(timezone.utc)
     }
     result = await db.courses.insert_one(doc)
@@ -557,7 +633,7 @@ async def create_course(data: CourseCreate, user: dict = Depends(require_admin))
 
 @courses_router.put("/{course_id}")
 async def update_course(course_id: str, data: CourseCreate, user: dict = Depends(require_admin)):
-    await db.courses.update_one({"_id": ObjectId(course_id)}, {"$set": {
+    await db.courses.update_one(ifilter(user, {"_id": ObjectId(course_id)}), {"$set": {
         "name": data.name, "category": data.category, "branch_id": data.branch_id,
         "base_fee": data.base_fee, "teacher_id": data.teacher_id
     }})
@@ -565,7 +641,7 @@ async def update_course(course_id: str, data: CourseCreate, user: dict = Depends
 
 @courses_router.delete("/{course_id}")
 async def delete_course(course_id: str, user: dict = Depends(require_admin)):
-    await db.courses.delete_one({"_id": ObjectId(course_id)})
+    await db.courses.delete_one(ifilter(user, {"_id": ObjectId(course_id)}))
     return {"message": "Course deleted"}
 
 # ========================
@@ -581,12 +657,8 @@ async def list_enquiries(
     search: Optional[str] = None,
 ):
     import math, re as _re
-    q = {}
+    q = ifilter(user)
     if search:
-        try:
-            regex = _re.compile(_re.escape(search), _re.IGNORECASE)
-        except Exception:
-            regex = _re.compile(search, _re.IGNORECASE)
         q["$or"] = [
             {"student_name": {"$regex": _re.escape(search), "$options": "i"}},
             {"email": {"$regex": _re.escape(search), "$options": "i"}},
@@ -598,12 +670,7 @@ async def list_enquiries(
     skip = (max(1, page) - 1) * effective_limit
     pages = max(1, math.ceil(total / effective_limit))
     enquiries = await db.enquiries.find(q).sort("created_at", -1).skip(skip).limit(effective_limit).to_list(effective_limit)
-    return {
-        "items": [serialize_doc(e) for e in enquiries],
-        "total": total,
-        "page": max(1, page),
-        "pages": pages,
-    }
+    return {"items": [serialize_doc(e) for e in enquiries], "total": total, "page": max(1, page), "pages": pages}
 
 @enquiries_router.post("")
 async def create_enquiry(data: EnquiryCreate, user: dict = Depends(get_current_user)):
@@ -611,8 +678,8 @@ async def create_enquiry(data: EnquiryCreate, user: dict = Depends(get_current_u
         "student_name": data.student_name, "email": data.email, "phone": data.phone,
         "courses": data.courses, "stage": data.stage, "source": data.source,
         "notes": data.notes, "city": data.city, "address": data.address,
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
+        "institute_id": user.get("institute_id"),
+        "created_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc),
     }
     result = await db.enquiries.insert_one(doc)
     return serialize_doc({**doc, "_id": result.inserted_id})
@@ -622,41 +689,34 @@ async def update_enquiry(enquiry_id: str, data: EnquiryCreate, user: dict = Depe
     update = {
         "student_name": data.student_name, "email": data.email, "phone": data.phone,
         "courses": data.courses, "source": data.source, "notes": data.notes,
-        "city": data.city,
-        "updated_at": datetime.now(timezone.utc),
+        "city": data.city, "updated_at": datetime.now(timezone.utc),
     }
-    await db.enquiries.update_one({"_id": ObjectId(enquiry_id)}, {"$set": update})
+    await db.enquiries.update_one(ifilter(user, {"_id": ObjectId(enquiry_id)}), {"$set": update})
     enquiry = await db.enquiries.find_one({"_id": ObjectId(enquiry_id)})
     result = serialize_doc(enquiry)
-
-    # Auto-create student if stage was set to converted via edit
     if data.stage == "converted":
         created, student_id = await auto_create_student_from_enquiry(enquiry)
         result["student_created"] = created
         result["student_id"] = student_id
-
     return result
 
 @enquiries_router.patch("/{enquiry_id}/stage")
 async def update_stage(enquiry_id: str, data: StageUpdate, user: dict = Depends(get_current_user)):
     await db.enquiries.update_one(
-        {"_id": ObjectId(enquiry_id)},
+        ifilter(user, {"_id": ObjectId(enquiry_id)}),
         {"$set": {"stage": data.stage, "updated_at": datetime.now(timezone.utc)}}
     )
     enquiry = await db.enquiries.find_one({"_id": ObjectId(enquiry_id)})
     result = serialize_doc(enquiry)
-
-    # Auto-create student record when enquiry is converted
     if data.stage == "converted":
         created, student_id = await auto_create_student_from_enquiry(enquiry)
         result["student_created"] = created
         result["student_id"] = student_id
-
     return result
 
 @enquiries_router.delete("/{enquiry_id}")
 async def delete_enquiry(enquiry_id: str, user: dict = Depends(get_current_user)):
-    await db.enquiries.delete_one({"_id": ObjectId(enquiry_id)})
+    await db.enquiries.delete_one(ifilter(user, {"_id": ObjectId(enquiry_id)}))
     return {"message": "Enquiry deleted"}
 
 # ========================
@@ -738,7 +798,7 @@ finance_router = APIRouter(prefix="/finance", tags=["finance"])
 
 @finance_router.get("/invoices")
 async def list_invoices(user: dict = Depends(get_current_user)):
-    invoices = await db.invoices.find().sort("created_at", -1).to_list(1000)
+    invoices = await db.invoices.find(ifilter(user)).sort("created_at", -1).to_list(1000)
     return [serialize_doc(i) for i in invoices]
 
 @finance_router.post("/calculate")
@@ -752,7 +812,9 @@ async def calculate_fee(data: FeeCalculate, user: dict = Depends(require_admin))
         "base_fee": data.base_fee, "gst_amount": gst_amount,
         "discount": data.discount, "total": total,
         "paid_amount": 0, "balance": total,
-        "status": "pending", "created_at": datetime.now(timezone.utc),
+        "status": "pending",
+        "institute_id": user.get("institute_id"),
+        "created_at": datetime.now(timezone.utc),
     }
     result = await db.invoices.insert_one(doc)
     return serialize_doc({**doc, "_id": result.inserted_id})
@@ -1128,7 +1190,7 @@ students_router = APIRouter(prefix="/students", tags=["students"])
 
 @students_router.get("")
 async def list_students(user: dict = Depends(get_current_user)):
-    students = await db.students.find().sort("created_at", -1).to_list(1000)
+    students = await db.students.find(ifilter(user)).sort("created_at", -1).to_list(1000)
     return [serialize_doc(s) for s in students]
 
 @students_router.post("")
@@ -1140,6 +1202,7 @@ async def create_student(data: StudentCreate, user: dict = Depends(require_admin
         "guardian_name": data.guardian_name, "guardian_phone": data.guardian_phone,
         "status": "onboarding", "syllabus_percentage": 0,
         "batch_id": None, "notes": "",
+        "institute_id": user.get("institute_id"),
         "enrollment_date": datetime.now(timezone.utc).isoformat(),
         "created_at": datetime.now(timezone.utc),
     }
@@ -1148,7 +1211,7 @@ async def create_student(data: StudentCreate, user: dict = Depends(require_admin
 
 @students_router.get("/{student_id}")
 async def get_student(student_id: str, user: dict = Depends(get_current_user)):
-    student = await db.students.find_one({"_id": ObjectId(student_id)})
+    student = await db.students.find_one(ifilter(user, {"_id": ObjectId(student_id)}))
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     return serialize_doc(student)
@@ -1156,12 +1219,12 @@ async def get_student(student_id: str, user: dict = Depends(get_current_user)):
 @students_router.put("/{student_id}")
 async def update_student(student_id: str, data: StudentUpdate, user: dict = Depends(require_admin)):
     update = {k: v for k, v in data.model_dump().items() if v is not None}
-    await db.students.update_one({"_id": ObjectId(student_id)}, {"$set": update})
+    await db.students.update_one(ifilter(user, {"_id": ObjectId(student_id)}), {"$set": update})
     return serialize_doc(await db.students.find_one({"_id": ObjectId(student_id)}))
 
 @students_router.patch("/{student_id}/status")
 async def update_student_status(student_id: str, data: StatusUpdate, user: dict = Depends(require_admin)):
-    await db.students.update_one({"_id": ObjectId(student_id)}, {"$set": {"status": data.status}})
+    await db.students.update_one(ifilter(user, {"_id": ObjectId(student_id)}), {"$set": {"status": data.status}})
     return serialize_doc(await db.students.find_one({"_id": ObjectId(student_id)}))
 
 @students_router.post("/{student_id}/onboard")
@@ -1185,6 +1248,7 @@ async def complete_student(student_id: str, user: dict = Depends(require_admin))
     student = await db.students.find_one({"_id": ObjectId(student_id)})
     cert = {
         "student_id": student_id, "student_name": student.get("name"),
+        "institute_id": user.get("institute_id"),
         "issued_date": datetime.now(timezone.utc).isoformat(),
         "certificate_id": f"CERT-{uuid.uuid4().hex[:8].upper()}",
     }
@@ -1202,6 +1266,7 @@ async def promote_student(student_id: str, user: dict = Depends(require_admin)):
         "phone": student.get("phone"), "courses": student.get("course_ids", []),
         "stage": "new", "source": "promotion",
         "notes": "Re-enrolment lead from previous year student",
+        "institute_id": user.get("institute_id"),
         "created_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc),
     }
     result = await db.enquiries.insert_one(enquiry_doc)
@@ -1804,6 +1869,311 @@ async def public_submit_enquiry(data: PublicEnquiryCreate):
     await db.enquiries.insert_one(doc)
     return {"success": True, "message": "Thank you! Your enquiry has been submitted. We will get in touch with you soon."}
 
+class PublicEnquiryCreate(BaseModel):
+    student_name: str
+    email: str
+    phone: str
+    address: Optional[str] = None
+    city: Optional[str] = None
+    interest: str = ""
+    institute_code: Optional[str] = None
+
+@api_router.post("/public/enquiry")
+async def public_submit_enquiry(data: PublicEnquiryCreate):
+    iid = None
+    if data.institute_code:
+        inst = await db.institutes.find_one({"code": data.institute_code.strip().upper(), "is_active": True})
+        if inst:
+            iid = str(inst["_id"])
+    if not iid:
+        default_inst = await db.institutes.find_one({"code": "DEFAULT"})
+        if default_inst:
+            iid = str(default_inst["_id"])
+    doc = {
+        "student_name": data.student_name.strip(),
+        "email": data.email.strip().lower(),
+        "phone": data.phone.strip(),
+        "address": data.address.strip() if data.address else "",
+        "city": data.city.strip() if data.city else "",
+        "notes": data.interest.strip(),
+        "courses": [], "stage": "new", "source": "web_form",
+        "institute_id": iid,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    await db.enquiries.insert_one(doc)
+    return {"success": True, "message": "Thank you! Your enquiry has been submitted. We will get in touch with you soon."}
+
+# ========================
+# INSTITUTES ROUTES (Super Admin only)
+# ========================
+institutes_router = APIRouter(prefix="/institutes", tags=["institutes"])
+
+@institutes_router.get("")
+async def list_institutes(user: dict = Depends(require_super_admin)):
+    insts = await db.institutes.find().sort("created_at", -1).to_list(1000)
+    result = []
+    for inst in insts:
+        iid = str(inst["_id"])
+        d = serialize_doc(inst)
+        d["student_count"] = await db.students.count_documents({"institute_id": iid})
+        d["enquiry_count"] = await db.enquiries.count_documents({"institute_id": iid})
+        d["user_count"] = await db.users.count_documents({"institute_id": iid})
+        result.append(d)
+    return result
+
+@institutes_router.post("")
+async def create_institute(data: InstituteCreate, user: dict = Depends(require_super_admin)):
+    code = data.code.strip().upper()
+    if await db.institutes.find_one({"code": code}):
+        raise HTTPException(status_code=400, detail=f"Institute code '{code}' already exists")
+    if await db.users.find_one({"email": data.admin_email.lower().strip()}):
+        raise HTTPException(status_code=400, detail="Admin email already registered")
+    inst_doc = {
+        "name": data.name.strip(), "code": code,
+        "phone": data.phone or "", "address": data.address or "",
+        "is_active": True, "created_at": datetime.now(timezone.utc),
+    }
+    result = await db.institutes.insert_one(inst_doc)
+    institute_id = str(result.inserted_id)
+    await db.users.insert_one({
+        "name": data.admin_name.strip(),
+        "email": data.admin_email.lower().strip(),
+        "password_hash": hash_password(data.admin_password),
+        "role": "admin", "institute_id": institute_id,
+        "created_at": datetime.now(timezone.utc),
+    })
+    return {**serialize_doc(inst_doc), "id": institute_id}
+
+@institutes_router.patch("/{institute_id}")
+async def update_institute(institute_id: str, data: InstituteUpdate, user: dict = Depends(require_super_admin)):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    await db.institutes.update_one({"_id": ObjectId(institute_id)}, {"$set": update})
+    return serialize_doc(await db.institutes.find_one({"_id": ObjectId(institute_id)}))
+
+@institutes_router.delete("/{institute_id}")
+async def delete_institute(institute_id: str, user: dict = Depends(require_super_admin)):
+    await db.institutes.delete_one({"_id": ObjectId(institute_id)})
+    return {"message": "Institute deleted"}
+
+# ========================
+# PARENT PORTAL ROUTES
+# ========================
+parent_router = APIRouter(prefix="/parent", tags=["parent"])
+
+async def require_parent(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "parent":
+        raise HTTPException(status_code=403, detail="Parent access only")
+    return user
+
+@parent_router.get("/dashboard")
+async def parent_dashboard(user: dict = Depends(require_parent)):
+    student_id = user.get("student_id")
+    if not student_id:
+        raise HTTPException(status_code=404, detail="No student linked to this parent account")
+    student = await db.students.find_one({"_id": ObjectId(student_id)})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    invoices = await db.invoices.find({"student_id": student_id}).to_list(100)
+    attendance = await db.attendance.find({"student_id": student_id}).sort("created_at", -1).to_list(50)
+    total_sessions = len(attendance)
+    present = sum(1 for a in attendance if a.get("status") == "present")
+    attendance_pct = round((present / total_sessions * 100), 1) if total_sessions > 0 else 0
+    total_fees = sum(i.get("total", 0) for i in invoices)
+    paid_fees = sum(i.get("paid_amount", 0) for i in invoices)
+    balance = sum(i.get("balance", 0) for i in invoices)
+    return {
+        "student": serialize_doc(student),
+        "attendance_summary": {"total": total_sessions, "present": present, "percentage": attendance_pct},
+        "fee_summary": {"total": total_fees, "paid": paid_fees, "balance": balance},
+    }
+
+@parent_router.get("/attendance")
+async def parent_attendance(user: dict = Depends(require_parent)):
+    student_id = user.get("student_id")
+    if not student_id:
+        raise HTTPException(status_code=404, detail="No student linked")
+    records = await db.attendance.find({"student_id": student_id}).sort("created_at", -1).to_list(200)
+    return [serialize_doc(r) for r in records]
+
+@parent_router.get("/fees")
+async def parent_fees(user: dict = Depends(require_parent)):
+    student_id = user.get("student_id")
+    if not student_id:
+        raise HTTPException(status_code=404, detail="No student linked")
+    invoices = await db.invoices.find({"student_id": student_id}).sort("created_at", -1).to_list(100)
+    return [serialize_doc(i) for i in invoices]
+
+@parent_router.get("/academic")
+async def parent_academic(user: dict = Depends(require_parent)):
+    student_id = user.get("student_id")
+    if not student_id:
+        raise HTTPException(status_code=404, detail="No student linked")
+    student = await db.students.find_one({"_id": ObjectId(student_id)})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    batch_ids = student.get("batch_ids") or ([student.get("batch_id")] if student.get("batch_id") else [])
+    batches, schedules = [], []
+    for bid in batch_ids:
+        try:
+            b = await db.batches.find_one({"_id": ObjectId(bid)})
+            if b:
+                batches.append(serialize_doc(b))
+                sched = await db.schedules.find({"batch_id": bid}).to_list(50)
+                schedules.extend([serialize_doc(s) for s in sched])
+        except Exception:
+            pass
+    return {"student": serialize_doc(student), "batches": batches, "schedules": schedules}
+
+# ========================
+# PARENT MANAGEMENT (Admin)
+# ========================
+@api_router.get("/admin/parents")
+async def list_parents(user: dict = Depends(require_admin)):
+    parents = await db.users.find(ifilter(user, {"role": "parent"}), {"password_hash": 0}).to_list(1000)
+    result = []
+    for p in parents:
+        pd = serialize_doc(p)
+        if p.get("student_id"):
+            try:
+                student = await db.students.find_one({"_id": ObjectId(p["student_id"])})
+                pd["student_name"] = (student or {}).get("name", "Unknown")
+                pd["student_email"] = (student or {}).get("email", "")
+            except Exception:
+                pd["student_name"] = "Unknown"
+        result.append(pd)
+    return result
+
+@api_router.post("/admin/parents")
+async def create_parent_account(data: ParentInvite, user: dict = Depends(require_admin)):
+    email = data.parent_email.lower().strip()
+    iid = user.get("institute_id")
+    if await db.users.find_one({"email": email, "institute_id": iid} if iid else {"email": email}):
+        raise HTTPException(status_code=400, detail="Email already registered")
+    try:
+        student = await db.students.find_one({"_id": ObjectId(data.student_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid student ID")
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    tmp_password = f"Parent@{uuid.uuid4().hex[:6]}"
+    parent_doc = {
+        "name": data.parent_name.strip(),
+        "email": email,
+        "password_hash": hash_password(tmp_password),
+        "role": "parent",
+        "student_id": data.student_id,
+        "phone": data.parent_phone or "",
+        "institute_id": iid,
+        "created_at": datetime.now(timezone.utc),
+    }
+    result = await db.users.insert_one(parent_doc)
+    # Link parent back to student
+    await db.students.update_one(
+        {"_id": ObjectId(data.student_id)},
+        {"$addToSet": {"parent_ids": str(result.inserted_id)}}
+    )
+    # Notify parent
+    html = f"""<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto">
+    <div style="background:#002EB8;padding:24px 28px;border-radius:8px 8px 0 0">
+      <h1 style="color:white;margin:0;font-size:20px">EduTech LMS — Parent Portal Access</h1>
+    </div>
+    <div style="background:#F8F9FA;border:1px solid #E5E7EB;border-radius:0 0 8px 8px;padding:28px">
+      <p>Dear <strong>{data.parent_name}</strong>,</p>
+      <p>You have been granted access to the parent portal for <strong>{student.get('name')}</strong>.</p>
+      <p>Login at: <a href="{FRONTEND_URL}/parent-portal">{FRONTEND_URL}/parent-portal</a></p>
+      <p><strong>Email:</strong> {email}<br><strong>Temporary Password:</strong> {tmp_password}</p>
+      <p style="color:#FF2B2B;font-size:12px">Please change your password after first login.</p>
+    </div></body></html>"""
+    await notify_parent(email, data.parent_name, student.get("name", ""), "EduTech LMS — Parent Portal Access", html)
+    return {"id": str(result.inserted_id), "email": email, "temp_password": tmp_password, "student_name": student.get("name")}
+
+@api_router.delete("/admin/parents/{parent_id}")
+async def delete_parent(parent_id: str, user: dict = Depends(require_admin)):
+    parent = await db.users.find_one({"_id": ObjectId(parent_id)})
+    if parent and parent.get("student_id"):
+        await db.students.update_one(
+            {"_id": ObjectId(parent["student_id"])},
+            {"$pull": {"parent_ids": parent_id}}
+        )
+    await db.users.delete_one({"_id": ObjectId(parent_id)})
+    return {"message": "Parent account deleted"}
+
+# Student portal: invite parent by email
+@api_router.post("/portal/invite-parent")
+async def invite_parent_from_portal(data: dict, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ["student", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    student_user_id = user.get("id") or str(user.get("_id", ""))
+    student = await db.students.find_one({"user_id": student_user_id})
+    if not student:
+        raise HTTPException(status_code=404, detail="No student record linked to this account")
+    student_id = str(student["_id"])
+    parent_email = data.get("email", "").lower().strip()
+    parent_name = data.get("name", "Guardian").strip()
+    parent_phone = data.get("phone", "")
+    iid = user.get("institute_id")
+    if not parent_email:
+        raise HTTPException(status_code=400, detail="Parent email required")
+    existing = await db.users.find_one({"email": parent_email, "role": "parent", "student_id": student_id})
+    if existing:
+        raise HTTPException(status_code=400, detail="Parent already linked to this student")
+    tmp_password = f"Parent@{uuid.uuid4().hex[:6]}"
+    parent_doc = {
+        "name": parent_name, "email": parent_email,
+        "password_hash": hash_password(tmp_password),
+        "role": "parent", "student_id": student_id,
+        "phone": parent_phone, "institute_id": iid,
+        "created_at": datetime.now(timezone.utc),
+    }
+    result = await db.users.insert_one(parent_doc)
+    await db.students.update_one(
+        {"_id": ObjectId(student_id)},
+        {"$addToSet": {"parent_ids": str(result.inserted_id)}}
+    )
+    html = f"""<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto">
+    <div style="background:#002EB8;padding:24px 28px;border-radius:8px 8px 0 0">
+      <h1 style="color:white;margin:0;font-size:20px">EduTech LMS — Parent Portal Access</h1>
+    </div>
+    <div style="background:#F8F9FA;border:1px solid #E5E7EB;border-radius:0 0 8px 8px;padding:28px">
+      <p>Dear <strong>{parent_name}</strong>,</p>
+      <p>You have been granted access to monitor <strong>{student.get('name')}</strong>'s progress.</p>
+      <p>Login at: <a href="{FRONTEND_URL}/parent-portal">{FRONTEND_URL}/parent-portal</a></p>
+      <p><strong>Email:</strong> {parent_email}<br><strong>Temporary Password:</strong> {tmp_password}</p>
+    </div></body></html>"""
+    await notify_parent(parent_email, parent_name, student.get("name", ""), "EduTech LMS — Parent Portal Invite", html)
+    return {"message": "Parent account created", "temp_password": tmp_password}
+
+# Notification trigger: low attendance
+async def check_and_notify_low_attendance(student_id: str, institute_id: str = None):
+    try:
+        records = await db.attendance.find({"student_id": student_id}).to_list(500)
+        if not records:
+            return
+        total = len(records)
+        present = sum(1 for r in records if r.get("status") == "present")
+        pct = (present / total * 100) if total > 0 else 100
+        if pct < 75:
+            parents = await db.users.find({"role": "parent", "student_id": student_id}).to_list(10)
+            student = await db.students.find_one({"_id": ObjectId(student_id)})
+            sname = (student or {}).get("name", "your child")
+            for p in parents:
+                html = f"""<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                <div style="background:#FF2B2B;padding:24px;border-radius:8px 8px 0 0">
+                  <h1 style="color:white;margin:0;font-size:18px">Low Attendance Alert</h1>
+                </div>
+                <div style="background:#FFF;border:1px solid #E5E7EB;border-radius:0 0 8px 8px;padding:24px">
+                  <p>Dear {p.get('name','Parent')},</p>
+                  <p><strong>{sname}</strong>'s attendance has dropped to <strong style="color:#FF2B2B">{pct:.1f}%</strong>.</p>
+                  <p>Minimum required attendance is 75%. Please contact the institute.</p>
+                </div></body></html>"""
+                await notify_parent(
+                    p["email"], p.get("name", "Parent"), sname,
+                    f"Low Attendance Alert — {sname} ({pct:.1f}%)", html
+                )
+    except Exception as e:
+        logger.error(f"Low attendance notify error: {e}")
+
 api_router.include_router(enquiries_router)
 api_router.include_router(academic_router)
 api_router.include_router(finance_router)
@@ -1815,6 +2185,8 @@ api_router.include_router(portal_router)
 api_router.include_router(webhooks_router)
 api_router.include_router(settings_router)
 api_router.include_router(admin_router)
+api_router.include_router(institutes_router)
+api_router.include_router(parent_router)
 app.include_router(api_router)
 
 # ========================
@@ -1822,6 +2194,55 @@ app.include_router(api_router)
 # ========================
 @app.on_event("startup")
 async def startup():
+    # Ensure default institute exists and migrate pre-existing data
+    default_inst = await db.institutes.find_one({"code": "DEFAULT"})
+    if not default_inst:
+        res = await db.institutes.insert_one({
+            "name": "EduTech Academy",
+            "code": "DEFAULT",
+            "phone": "",
+            "address": "",
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc),
+        })
+        default_id = str(res.inserted_id)
+        logger.info(f"Created default institute: {default_id}")
+    else:
+        default_id = str(default_inst["_id"])
+
+    # Migrate all docs without institute_id to the default institute
+    colls = ["users", "students", "enquiries", "invoices", "payments",
+             "attendance", "fee_queries", "branches", "courses", "batches",
+             "schedules", "certificates", "class_sessions"]
+    for coll in colls:
+        r = await db[coll].update_many(
+            {"institute_id": {"$exists": False}},
+            {"$set": {"institute_id": default_id}}
+        )
+        if r.modified_count:
+            logger.info(f"Migrated {r.modified_count} docs in '{coll}' to default institute")
+
+    # Seed super admin if not exists
+    if not await db.users.find_one({"role": "super_admin"}):
+        await db.users.insert_one({
+            "name": "Super Admin",
+            "email": "superadmin@edutech.com",
+            "password_hash": hash_password("SuperAdmin@123"),
+            "role": "super_admin",
+            "institute_id": None,
+            "created_at": datetime.now(timezone.utc),
+        })
+        logger.info("Super Admin seeded: superadmin@edutech.com / SuperAdmin@123")
+
+    # Seed legacy admin if not present
+    if not await db.users.find_one({"email": "admin@edutech.com"}):
+        await db.users.insert_one({
+            "name": "Admin", "email": "admin@edutech.com",
+            "password_hash": hash_password("admin123"),
+            "role": "admin", "institute_id": default_id,
+            "created_at": datetime.now(timezone.utc),
+        })
+        logger.info("Default admin seeded")
     await db.users.create_index("email", unique=True)
     await db.students.create_index("email")
     await db.enquiries.create_index("stage")

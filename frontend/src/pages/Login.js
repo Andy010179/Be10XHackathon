@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { Building2, Eye, EyeOff, LogIn } from "lucide-react";
+import { Building2, Eye, EyeOff, LogIn, Hash } from "lucide-react";
 import { toast } from "sonner";
 
 function formatError(detail) {
@@ -16,6 +16,7 @@ export default function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [instituteCode, setInstituteCode] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -23,13 +24,12 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      const user = await login(email, password);
+      const user = await login(email, password, instituteCode.trim().toUpperCase() || null);
       toast.success(`Welcome back, ${user.name}!`);
-      if (user.role === "teacher") {
-        navigate("/teacher/attendance");
-      } else {
-        navigate("/dashboard");
-      }
+      if (user.role === "super_admin") navigate("/super-admin");
+      else if (user.role === "parent") navigate("/parent-portal");
+      else if (user.role === "teacher") navigate("/teacher/attendance");
+      else navigate("/dashboard");
     } catch (err) {
       toast.error(formatError(err.response?.data?.detail) || "Login failed");
     } finally {
@@ -95,6 +95,22 @@ export default function Login() {
           <form onSubmit={handleSubmit} data-testid="login-form" className="space-y-4">
             <div>
               <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-2">
+                Institute Code <span className="text-[#8A8F98] font-normal normal-case tracking-normal">(leave blank for Super Admin)</span>
+              </label>
+              <div className="relative">
+                <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A8F98]" />
+                <input
+                  type="text"
+                  value={instituteCode}
+                  onChange={(e) => setInstituteCode(e.target.value.toUpperCase())}
+                  data-testid="login-institute-code"
+                  placeholder="e.g. DEFAULT or SUNRISE01"
+                  className="w-full border border-[#E5E7EB] rounded-md pl-9 pr-4 py-3 text-sm font-mono uppercase text-[#0A0A0A] placeholder:text-[#8A8F98] placeholder:normal-case placeholder:font-sans focus:outline-none focus:border-[#002EB8] focus:ring-2 focus:ring-[#002EB8]/10 transition-all"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] mb-2">
                 Email Address
               </label>
               <input
@@ -152,8 +168,8 @@ export default function Login() {
           <div className="mt-8 p-4 bg-[#F8F9FA] rounded-md border border-[#E5E7EB]">
             <p className="text-xs font-mono uppercase tracking-[0.1em] text-[#8A8F98] mb-2">Demo Credentials</p>
             <div className="space-y-1 text-sm text-[#0A0A0A]">
-              <p><span className="text-[#8A8F98]">Email:</span> admin@edutech.com</p>
-              <p><span className="text-[#8A8F98]">Password:</span> admin123</p>
+              <p><span className="text-[#8A8F98]">Admin (code: DEFAULT):</span> admin@edutech.com / admin123</p>
+              <p><span className="text-[#8A8F98]">Super Admin (no code):</span> superadmin@edutech.com / SuperAdmin@123</p>
             </div>
           </div>
         </div>

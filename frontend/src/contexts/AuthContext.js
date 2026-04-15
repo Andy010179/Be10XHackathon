@@ -16,10 +16,10 @@ export const AuthProvider = ({ children }) => {
       .catch(() => setUser(null));
   }, []);
 
-  const login = async (email, password) => {
+  const login = async (email, password, institute_code) => {
     const res = await axios.post(
       `${API_URL}/api/auth/login`,
-      { email, password },
+      { email, password, ...(institute_code ? { institute_code } : {}) },
       { withCredentials: true }
     );
     setUser(res.data);

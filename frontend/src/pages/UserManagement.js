@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Plus, Trash2, X, Users, ShieldCheck, GraduationCap, Briefcase, Pencil, Upload, Download } from "lucide-react";
+import { Plus, Trash2, X, Users, ShieldCheck, GraduationCap, Briefcase, Pencil, Upload, Download, UserCheck } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -10,6 +10,7 @@ const ROLES = [
   { value: "teacher", label: "Teacher", icon: ShieldCheck, color: "bg-purple-50 text-purple-700 border-purple-200" },
   { value: "student", label: "Student", icon: GraduationCap, color: "bg-blue-50 text-[#002EB8] border-blue-200" },
   { value: "admin", label: "Admin", icon: ShieldCheck, color: "bg-red-50 text-red-700 border-red-200" },
+  { value: "parent", label: "Parent", icon: UserCheck, color: "bg-orange-50 text-orange-700 border-orange-200" },
 ];
 
 const emptyForm = { name: "", email: "", password: "", role: "teacher", branch_id: "" };
@@ -51,7 +52,15 @@ export default function UserManagement() {
   const [csvResults, setCsvResults] = useState(null);
   const csvInputRef = useRef(null);
 
-  // Fetch on mount — deps intentionally empty (API/axios are module-level constants)
+  // Parent management
+  const [activeTab, setActiveTab] = useState("users");
+  const [parents, setParents] = useState([]);
+  const [parentsLoaded, setParentsLoaded] = useState(false);
+  const [showParentForm, setShowParentForm] = useState(false);
+  const [parentForm, setParentForm] = useState({ parent_name: "", parent_email: "", parent_phone: "", student_id: "" });
+  const [parentSaving, setParentSaving] = useState(false);
+
+  // Fetch on mount
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     Promise.all([
@@ -65,6 +74,19 @@ export default function UserManagement() {
     }).catch(() => toast.error("Failed to load users"))
       .finally(() => setLoading(false));
   }, []);
+
+  const fetchParents = async () => {
+    try {
+      const res = await axios.get(`${API}/api/admin/parents`, { withCredentials: true });
+      setParents(res.data);
+      setParentsLoaded(true);
+    } catch { toast.error("Failed to load parents"); }
+  };
+
+  useEffect(() => {
+    if (activeTab === "parents" && !parentsLoaded) fetchParents();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -119,13 +141,36 @@ export default function UserManagement() {
     } finally { setEditSaving(false); }
   };
 
-  const handleDelete = async (id) => {
+  const handleDeleteUser = async (id) => {
     if (!window.confirm("Delete this user? This cannot be undone.")) return;
     try {
       await axios.delete(`${API}/api/users/${id}`, { withCredentials: true });
       setUsers((prev) => prev.filter((u) => u.id !== id));
       toast.success("User deleted");
     } catch { toast.error("Failed to delete user"); }
+  };
+
+  const handleDeleteParent = async (id) => {
+    if (!window.confirm("Remove this parent account?")) return;
+    try {
+      await axios.delete(`${API}/api/admin/parents/${id}`, { withCredentials: true });
+      setParents((prev) => prev.filter((p) => p.id !== id));
+      toast.success("Parent account removed");
+    } catch { toast.error("Failed to delete parent"); }
+  };
+
+  const handleCreateParent = async (e) => {
+    e.preventDefault();
+    setParentSaving(true);
+    try {
+      const res = await axios.post(`${API}/api/admin/parents`, parentForm, { withCredentials: true });
+      toast.success(`Parent account created! Temp password: ${res.data.temp_password}`);
+      setShowParentForm(false);
+      setParentForm({ parent_name: "", parent_email: "", parent_phone: "", student_id: "" });
+      fetchParents();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to create parent");
+    } finally { setParentSaving(false); }
   };
 
   const handleCSVFile = async (e) => {
@@ -187,31 +232,51 @@ export default function UserManagement() {
   return (
     <div className="p-6 lg:p-8 font-satoshi">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
         <div>
           <h1 className="font-cabinet font-black text-3xl tracking-tighter text-[#0A0A0A]">User Management</h1>
-          <p className="text-sm text-[#8A8F98] mt-0.5">{users.length} total accounts</p>
+          <p className="text-sm text-[#8A8F98] mt-0.5">{users.length} user accounts · {parents.length} parent accounts</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={downloadSampleCSV} title="Download CSV template"
-            className="flex items-center gap-1.5 px-3 py-2 border border-[#E5E7EB] text-[#8A8F98] text-sm rounded-md hover:border-[#002EB8] hover:text-[#002EB8] transition-colors">
-            <Download size={14} /> Template
-          </button>
-          <button onClick={() => csvInputRef.current?.click()} disabled={csvImporting}
-            data-testid="import-csv-button"
-            className="flex items-center gap-1.5 px-3 py-2 border border-[#E5E7EB] text-[#8A8F98] text-sm rounded-md hover:border-[#002EB8] hover:text-[#002EB8] transition-colors disabled:opacity-50">
-            <Upload size={14} /> {csvImporting ? "Importing..." : "Import CSV"}
-          </button>
-          <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleCSVFile} />
-          <button onClick={() => setShowForm(true)} data-testid="add-user-button"
-            className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] text-white text-sm rounded-md hover:bg-[#001A85] transition-colors font-medium">
-            <Plus size={16} /> Create User
-          </button>
+          {activeTab === "users" && (<>
+            <button onClick={downloadSampleCSV} title="Download CSV template"
+              className="flex items-center gap-1.5 px-3 py-2 border border-[#E5E7EB] text-[#8A8F98] text-sm rounded-md hover:border-[#002EB8] hover:text-[#002EB8] transition-colors">
+              <Download size={14} /> Template
+            </button>
+            <button onClick={() => csvInputRef.current?.click()} disabled={csvImporting}
+              data-testid="import-csv-button"
+              className="flex items-center gap-1.5 px-3 py-2 border border-[#E5E7EB] text-[#8A8F98] text-sm rounded-md hover:border-[#002EB8] hover:text-[#002EB8] transition-colors disabled:opacity-50">
+              <Upload size={14} /> {csvImporting ? "Importing..." : "Import CSV"}
+            </button>
+            <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleCSVFile} />
+            <button onClick={() => setShowForm(true)} data-testid="add-user-button"
+              className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] text-white text-sm rounded-md hover:bg-[#001A85] font-medium">
+              <Plus size={14} /> Add User
+            </button>
+          </>)}
+          {activeTab === "parents" && (
+            <button onClick={() => setShowParentForm(true)} data-testid="add-parent-button"
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700 font-medium">
+              <Plus size={14} /> Add Parent
+            </button>
+          )}
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 bg-white border border-[#E5E7EB] rounded-lg p-1 mb-5 w-fit">
+        <button onClick={() => setActiveTab("users")} data-testid="tab-users"
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === "users" ? "bg-[#002EB8] text-white" : "text-[#8A8F98] hover:text-[#0A0A0A]"}`}>
+          Users ({users.length})
+        </button>
+        <button onClick={() => setActiveTab("parents")} data-testid="tab-parents"
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === "parents" ? "bg-purple-600 text-white" : "text-[#8A8F98] hover:text-[#0A0A0A]"}`}>
+          Parent Accounts ({parents.length})
+        </button>
+      </div>
+
       {/* CSV Results */}
-      {csvResults && (
+      {csvResults && activeTab === "users" && (
         <div className="mb-4 bg-white border border-[#E5E7EB] rounded-lg p-4" data-testid="csv-results">
           <div className="flex items-center justify-between mb-2">
             <p className="font-medium text-sm">CSV Import Results</p>
@@ -231,7 +296,107 @@ export default function UserManagement() {
         </div>
       )}
 
-      {/* Role Stats */}
+      {/* PARENT ACCOUNTS TAB */}
+      {activeTab === "parents" && (
+        <div>
+          {!parentsLoaded ? (
+            <p className="text-[#8A8F98] text-sm">Loading...</p>
+          ) : parents.length === 0 ? (
+            <div className="text-center py-16 text-[#8A8F98] bg-white border border-[#E5E7EB] rounded-xl">
+              <UserCheck size={32} className="mx-auto mb-3 opacity-30" />
+              <p className="font-medium">No parent accounts yet</p>
+              <p className="text-sm mt-1">Click "Add Parent" to create one</p>
+            </div>
+          ) : (
+            <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-[#F8F9FA] border-b border-[#E5E7EB]">
+                    <tr>
+                      {["Parent Name", "Email", "Phone", "Linked Student", "Actions"].map((h) => (
+                        <th key={h} className="text-left px-4 py-3 text-xs font-mono uppercase tracking-widest text-[#8A8F98]">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parents.map((p) => (
+                      <tr key={p.id} className="border-b border-[#F0F0F0] hover:bg-[#F8F9FA]">
+                        <td className="px-4 py-3 font-medium">{p.name}</td>
+                        <td className="px-4 py-3 text-[#8A8F98]">{p.email}</td>
+                        <td className="px-4 py-3 text-[#8A8F98]">{p.phone || "—"}</td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm font-medium text-[#002EB8]">{p.student_name || "—"}</span>
+                          {p.student_email && <p className="text-xs text-[#8A8F98]">{p.student_email}</p>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <button onClick={() => handleDeleteParent(p.id)} data-testid={`delete-parent-${p.id}`}
+                            className="text-[#8A8F98] hover:text-[#FF2B2B]">
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Create Parent Modal */}
+          {showParentForm && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-xl border border-[#E5E7EB] w-full max-w-md shadow-xl">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
+                  <h3 className="font-cabinet font-bold text-base">Create Parent Account</h3>
+                  <button onClick={() => setShowParentForm(false)} className="text-[#8A8F98] hover:text-[#0A0A0A]"><X size={20} /></button>
+                </div>
+                <form onSubmit={handleCreateParent} className="p-6 space-y-4" data-testid="create-parent-form">
+                  {[
+                    { label: "Parent Name *", field: "parent_name", ph: "Guardian Full Name", req: true },
+                    { label: "Parent Email *", field: "parent_email", ph: "parent@example.com", req: true },
+                    { label: "Phone", field: "parent_phone", ph: "+91 98765 43210", req: false },
+                  ].map(({ label, field, ph, req }) => (
+                    <div key={field}>
+                      <label className="block text-xs font-mono uppercase tracking-widest text-[#8A8F98] mb-1">{label}</label>
+                      <input required={req} value={parentForm[field]}
+                        onChange={(e) => setParentForm((p) => ({ ...p, [field]: e.target.value }))}
+                        placeholder={ph}
+                        className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[#002EB8]" />
+                    </div>
+                  ))}
+                  <div>
+                    <label className="block text-xs font-mono uppercase tracking-widest text-[#8A8F98] mb-1">Link to Student *</label>
+                    <select required value={parentForm.student_id}
+                      onChange={(e) => setParentForm((p) => ({ ...p, student_id: e.target.value }))}
+                      data-testid="parent-student-select"
+                      className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[#002EB8] bg-white">
+                      <option value="">— Select Student —</option>
+                      {students.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name} ({s.email})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-xs text-[#002EB8]">
+                    A temporary password will be generated and shown after creation. The parent will receive login details via email.
+                  </div>
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => setShowParentForm(false)}
+                      className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2.5 rounded-lg text-sm hover:bg-[#F8F9FA]">Cancel</button>
+                    <button type="submit" disabled={parentSaving} data-testid="create-parent-submit"
+                      className="flex-1 bg-purple-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:bg-[#8A8F98]">
+                      {parentSaving ? "Creating..." : "Create Account"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* USERS TAB content (role stats + table) */}
+      {activeTab === "users" && (
+      <>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {ROLES.map((role) => {
           const RoleIcon = role.icon;
@@ -479,7 +644,7 @@ export default function UserManagement() {
                         <Pencil size={13} />
                       </button>
                       {u.role !== "admin" && (
-                        <button onClick={() => handleDelete(u.id)} data-testid={`delete-user-${u.id}`}
+                        <button onClick={() => handleDeleteUser(u.id)} data-testid={`delete-user-${u.id}`}
                           className="text-[#8A8F98] hover:text-[#FF2B2B] transition-colors p-1">
                           <Trash2 size={13} />
                         </button>
@@ -492,6 +657,8 @@ export default function UserManagement() {
           </tbody>
         </table>
       </div>
+      </>
+      )}
     </div>
   );
 }
