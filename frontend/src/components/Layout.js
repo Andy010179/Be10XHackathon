@@ -9,7 +9,7 @@ import {
 
 const navItems = [
   { path: "/dashboard",           label: "Dashboard",         icon: LayoutDashboard, roles: ["admin", "employer"] },
-  { path: "/enquiries",           label: "CRM Pipeline",      icon: Users,            roles: ["admin"] },
+  { path: "/enquiries",           label: "Students Pipeline",      icon: Users,            roles: ["admin"] },
   { path: "/academic",            label: "Academic",          icon: BookOpen,         roles: ["admin"] },
   { path: "/courses",             label: "Courses",           icon: GraduationCap,    roles: ["admin"] },
   { path: "/finance",             label: "Finance",           icon: DollarSign,       roles: ["admin"] },

@@ -393,7 +393,7 @@ export default function Enquiries() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="font-cabinet font-black text-3xl tracking-tighter text-[#0A0A0A]">CRM Pipeline</h1>
+          <h1 className="font-cabinet font-black text-3xl tracking-tighter text-[#0A0A0A]">Students Pipeline</h1>
           <p className="text-sm text-[#8A8F98] mt-0.5">
             {crmSearch ? `${total} match${total !== 1 ? "es" : ""}` : `${total} total · Page ${page} of ${pages}`}
           </p>

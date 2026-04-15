@@ -120,7 +120,7 @@ export default function Students() {
     }
     setPromoResults(results);
     const ok = results.filter((r) => r.status === "ok").length;
-    toast.success(`${ok} re-enrolment lead(s) added to CRM Pipeline`);
+    toast.success(`${ok} re-enrolment lead(s) added to Students Pipeline`);
     setPromoting(false);
   };
 
