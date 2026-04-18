@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { toast } from "sonner";
@@ -6,8 +6,9 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   Building2, LogOut, User, BookOpen, DollarSign,
   Award, MessageSquare, Pencil, X, Send, CheckCircle,
-  Download, Clock, TrendingUp, CreditCard, Smartphone, QrCode
+  Download, Clock, TrendingUp, CreditCard, Smartphone, QrCode, Camera, IdCard, Upload
 } from "lucide-react";
+import jsQR from "jsqr";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -15,6 +16,7 @@ const TABS = [
   { key: "profile", label: "My Profile", icon: User },
   { key: "academics", label: "Courses & Attendance", icon: BookOpen },
   { key: "fees", label: "My Fees", icon: DollarSign },
+  { key: "idcard", label: "ID Card", icon: CreditCard },
   { key: "certificate", label: "Certificate", icon: Award },
   { key: "checkin", label: "QR Check-in", icon: QrCode },
   { key: "query", label: "Fee Query", icon: MessageSquare },
@@ -48,6 +50,20 @@ export default function StudentPortal() {
   const [sessionCode, setSessionCode] = useState("");
   const [checkInLoading, setCheckInLoading] = useState(false);
   const [checkInResult, setCheckInResult] = useState(null);
+
+  // QR camera scanner
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const scanFrameRef = useRef(null);
+  const streamRef = useRef(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+
+  // ID Card
+  const [idCardLoading, setIdCardLoading] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [studentPhoto, setStudentPhoto] = useState(null);
+  const photoInputRef = useRef(null);
 
   const loadRazorpayScript = () =>
     new Promise((resolve) => {
@@ -151,6 +167,103 @@ export default function StudentPortal() {
       toast.error(msg);
     } finally {
       setCheckInLoading(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (scanFrameRef.current) cancelAnimationFrame(scanFrameRef.current);
+    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCameraActive(false);
+  };
+
+  const startCamera = async () => {
+    setCameraError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      streamRef.current = stream;
+      setCameraActive(true);
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+          scanFrame();
+        }
+      }, 200);
+    } catch (err) {
+      setCameraError("Camera access denied. Please allow camera permissions and try again.");
+    }
+  };
+
+  const scanFrame = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || !streamRef.current) return;
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
+      if (code && code.data) {
+        stopCamera();
+        try {
+          const url = new URL(code.data);
+          const sid = url.searchParams.get("session");
+          if (sid) {
+            setSessionCode(sid);
+            toast.success("QR scanned! Submitting attendance...");
+            setTimeout(() => {
+              axios.post(`${API}/api/attendance/qr-checkin`, { session_id: sid }, { withCredentials: true })
+                .then((res) => { setCheckInResult({ success: true, message: res.data.message || "Marked Present!" }); toast.success(res.data.message || "Attendance marked!"); })
+                .catch((err) => { const msg = err.response?.data?.detail || "Check-in failed"; setCheckInResult({ success: false, message: msg }); toast.error(msg); });
+            }, 300);
+          } else {
+            toast.error("QR code does not contain a valid session ID");
+          }
+        } catch {
+          setSessionCode(code.data);
+          toast.info("QR data captured — submit manually");
+        }
+        return;
+      }
+    }
+    scanFrameRef.current = requestAnimationFrame(scanFrame);
+  };
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoUploading(true);
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      await axios.post(`${API}/api/portal/photo`, form, { withCredentials: true, headers: { "Content-Type": "multipart/form-data" } });
+      setStudentPhoto(URL.createObjectURL(file));
+      toast.success("Photo uploaded!");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Photo upload failed");
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
+
+  const handleDownloadIdCard = async () => {
+    setIdCardLoading(true);
+    try {
+      const res = await axios.get(`${API}/api/portal/id-card`, { withCredentials: true, responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Student_ID_Card.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("ID Card downloaded!");
+    } catch {
+      toast.error("Failed to generate ID card");
+    } finally {
+      setIdCardLoading(false);
     }
   };
 
@@ -562,6 +675,92 @@ export default function StudentPortal() {
         </div>
       )}
 
+      {/* ID CARD TAB */}
+      {activeTab === "idcard" && (
+        <div className="space-y-4">
+          <div className="bg-white border border-[#E5E7EB] rounded-lg p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-[#002EB8]/10 rounded-full flex items-center justify-center">
+                  <CreditCard size={20} className="text-[#002EB8]" />
+                </div>
+                <div>
+                  <h3 className="font-cabinet font-bold text-base text-[#0A0A0A]">Student ID Card</h3>
+                  <p className="text-xs text-[#8A8F98]">Your digital identity card — download and print</p>
+                </div>
+              </div>
+              <button
+                onClick={handleDownloadIdCard}
+                disabled={idCardLoading}
+                data-testid="download-id-card-btn"
+                className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] text-white text-sm rounded-md hover:bg-[#001A85] disabled:bg-[#8A8F98] font-medium transition-colors"
+              >
+                <Download size={14} />
+                {idCardLoading ? "Generating..." : "Download PDF"}
+              </button>
+            </div>
+            {/* Preview card */}
+            <div className="rounded-xl overflow-hidden border border-[#E5E7EB] max-w-lg mx-auto">
+              {/* Card header */}
+              <div className="bg-[#001C82] px-5 py-4 flex items-center justify-between">
+                <div>
+                  <p className="text-white font-cabinet font-bold text-base tracking-wide">{student?.institute_name || "Institute"}</p>
+                  <p className="text-[#AAB8F5] text-xs mt-0.5">STUDENT IDENTITY CARD</p>
+                </div>
+                <CreditCard size={28} className="text-[#AAB8F5]" />
+              </div>
+              {/* Card body */}
+              <div className="bg-[#F8F9FA] px-5 py-4 flex gap-4">
+                {/* Photo */}
+                <div className="shrink-0">
+                  <div className="w-20 h-24 rounded-lg border-2 border-[#E5E7EB] bg-white overflow-hidden flex items-center justify-center relative">
+                    {studentPhoto || student?.photo ? (
+                      <img src={studentPhoto || `data:${student?.photo_mime || "image/jpeg"};base64,${student?.photo}`} alt="Student" className="w-full h-full object-cover" />
+                    ) : (
+                      <User size={32} className="text-[#8A8F98]" />
+                    )}
+                  </div>
+                  <label htmlFor="student-photo-input" className="mt-2 flex items-center justify-center gap-1 text-xs text-[#002EB8] cursor-pointer hover:underline" data-testid="upload-photo-btn">
+                    {photoUploading ? "Uploading..." : <><Upload size={10} /> Upload photo</>}
+                  </label>
+                  <input id="student-photo-input" ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                </div>
+                {/* Info */}
+                <div className="flex-1 space-y-2">
+                  <div>
+                    <p className="text-xs text-[#8A8F98] uppercase tracking-wide">Name</p>
+                    <p className="font-cabinet font-bold text-sm text-[#0A0A0A]">{student?.name || "—"}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <p className="text-xs text-[#8A8F98] uppercase tracking-wide">Student ID</p>
+                      <p className="text-xs font-medium font-mono">{student?.enrollment_no || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#8A8F98] uppercase tracking-wide">Mobile</p>
+                      <p className="text-xs font-medium">{student?.phone || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#8A8F98] uppercase tracking-wide">Course</p>
+                      <p className="text-xs font-medium truncate">{student?.course_name || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#8A8F98] uppercase tracking-wide">Joined</p>
+                      <p className="text-xs font-medium">{student?.created_at ? new Date(student.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</p>
+                    </div>
+                  </div>
+                  <div className="bg-[#EEF2FF] rounded-md px-3 py-2">
+                    <p className="text-xs text-[#8A8F98] uppercase tracking-wide">Parent / Guardian</p>
+                    <p className="text-xs font-medium">{student?.guardian_name || "—"}</p>
+                    <p className="text-xs text-[#8A8F98]">{student?.guardian_phone || "—"}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* QR CHECK-IN TAB */}
       {activeTab === "checkin" && (
         <div className="space-y-4">
@@ -572,9 +771,48 @@ export default function StudentPortal() {
               </div>
               <div>
                 <h3 className="font-cabinet font-bold text-base text-[#0A0A0A]">QR Code Attendance Check-in</h3>
-                <p className="text-xs text-[#8A8F98]">Enter your session code to mark attendance</p>
+                <p className="text-xs text-[#8A8F98]">Scan the QR code with your camera or enter session code</p>
               </div>
             </div>
+
+            {/* Camera scanner */}
+            <div className="mb-4">
+              {!cameraActive ? (
+                <button
+                  onClick={startCamera}
+                  data-testid="start-camera-btn"
+                  className="flex items-center gap-2 px-4 py-2.5 border border-[#002EB8] text-[#002EB8] text-sm rounded-md hover:bg-[#002EB8]/5 font-medium transition-colors w-full justify-center"
+                >
+                  <Camera size={16} /> Scan QR with Camera
+                </button>
+              ) : (
+                <div className="relative rounded-lg overflow-hidden border border-[#002EB8]">
+                  <video ref={videoRef} muted playsInline className="w-full max-h-56 object-cover" data-testid="qr-video" />
+                  <canvas ref={canvasRef} className="hidden" />
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-40 h-40 border-2 border-white rounded-lg opacity-70" />
+                  </div>
+                  <button
+                    onClick={stopCamera}
+                    data-testid="stop-camera-btn"
+                    className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1.5 hover:bg-black/80"
+                  >
+                    <X size={14} />
+                  </button>
+                  <p className="absolute bottom-2 left-0 right-0 text-center text-xs text-white bg-black/40 py-1">
+                    Point camera at the QR code
+                  </p>
+                </div>
+              )}
+              {cameraError && <p className="text-xs text-[#FF2B2B] mt-2">{cameraError}</p>}
+            </div>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex-1 h-px bg-[#E5E7EB]" />
+              <span className="text-xs text-[#8A8F98]">or enter session code manually</span>
+              <div className="flex-1 h-px bg-[#E5E7EB]" />
+            </div>
+
             <form onSubmit={handleQrCheckIn} className="space-y-4" data-testid="qr-checkin-form">
               <div>
                 <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Session Code</label>
@@ -611,9 +849,9 @@ export default function StudentPortal() {
             <p className="font-medium text-[#0A0A0A] text-sm mb-2">How to check in</p>
             <ol className="list-decimal list-inside space-y-1.5">
               <li>Your teacher will display a QR code at the start of class</li>
-              <li>Scan the QR code with your phone camera — it opens a check-in page</li>
-              <li>Or, ask your teacher for the Session ID and enter it above</li>
-              <li>Your attendance is marked automatically</li>
+              <li>Tap "Scan QR with Camera" above and point at the QR code</li>
+              <li>Attendance is marked automatically once scanned</li>
+              <li>Or ask your teacher for the Session ID and enter it manually</li>
             </ol>
           </div>
         </div>

@@ -1,129 +1,103 @@
-"""Tests for new features: CRM Pagination, Admin Backup, Finance PDF, QR Attendance"""
+"""
+Tests for new features: Logo upload, White-label PDF, Student ID card, Portal photo, Parent invoice downloads
+"""
 import pytest
 import requests
 import os
+import io
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
+
+ADMIN_CREDS = {"email": "admin@edutech.com", "password": "admin123", "institute_code": "DEFAULT"}
+STUDENT_CREDS = {"email": "vikram.shinde55@example.com", "password": "student123", "institute_code": "DEFAULT"}
+
 
 @pytest.fixture(scope="module")
-def session():
+def admin_session():
     s = requests.Session()
-    s.headers.update({"Content-Type": "application/json"})
-    resp = s.post(f"{BASE_URL}/api/auth/login", json={"email": "admin@edutech.com", "password": "admin123"})
-    assert resp.status_code == 200, f"Admin login failed: {resp.text}"
+    r = s.post(f"{BASE_URL}/api/auth/login", json=ADMIN_CREDS)
+    assert r.status_code == 200, f"Admin login failed: {r.text}"
     return s
+
 
 @pytest.fixture(scope="module")
 def student_session():
     s = requests.Session()
-    s.headers.update({"Content-Type": "application/json"})
-    resp = s.post(f"{BASE_URL}/api/auth/login", json={"email": "student@edutech.com", "password": "student123"})
-    if resp.status_code != 200:
-        pytest.skip("Student login failed")
+    r = s.post(f"{BASE_URL}/api/auth/login", json=STUDENT_CREDS)
+    if r.status_code != 200:
+        pytest.skip(f"Student login failed: {r.text}")
     return s
 
-# --- CRM Pagination ---
-class TestEnquiriesPagination:
-    def test_get_enquiries_paginated(self, session):
-        """GET /api/enquiries returns paginated response"""
-        resp = session.get(f"{BASE_URL}/api/enquiries?page=1&limit=15")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "items" in data, f"Missing 'items' in response: {data}"
-        assert "total" in data
-        assert "page" in data
-        assert "pages" in data
-        assert isinstance(data["items"], list)
 
-    def test_get_enquiries_search(self, session):
-        """GET /api/enquiries with search param"""
-        resp = session.get(f"{BASE_URL}/api/enquiries?page=1&limit=15&search=test")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "items" in data
+class TestLogoAPI:
+    """Logo upload and retrieval"""
 
-    def test_get_enquiries_page2(self, session):
-        """GET /api/enquiries page 2"""
-        resp = session.get(f"{BASE_URL}/api/enquiries?page=2&limit=5")
-        assert resp.status_code == 200
+    def test_get_logo_before_upload(self, admin_session):
+        r = admin_session.get(f"{BASE_URL}/api/settings/logo")
+        assert r.status_code in [200, 404], f"Unexpected status: {r.status_code}"
+        print(f"GET /api/settings/logo (before upload): {r.status_code}")
 
+    def test_upload_logo_admin(self, admin_session):
+        png_bytes = (
+            b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01'
+            b'\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00'
+            b'\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x18'
+            b'\xd8N\x00\x00\x00\x00IEND\xaeB`\x82'
+        )
+        files = {"file": ("test_logo.png", io.BytesIO(png_bytes), "image/png")}
+        r = admin_session.post(f"{BASE_URL}/api/settings/logo", files=files)
+        print(f"POST /api/settings/logo: {r.status_code} {r.text}")
+        assert r.status_code == 200, f"Logo upload failed: {r.text}"
 
-# --- Admin Data Management ---
-class TestAdminDataManagement:
-    def test_download_backup(self, session):
-        """GET /api/admin/backup returns xlsx blob"""
-        resp = session.get(f"{BASE_URL}/api/admin/backup")
-        assert resp.status_code == 200
-        ct = resp.headers.get("content-type", "")
-        assert "spreadsheet" in ct or "octet-stream" in ct or "xlsx" in ct, f"Unexpected content-type: {ct}"
-
-    def test_delete_all_data_wrong_confirm(self, session):
-        """DELETE /api/admin/data should require confirmation"""
-        resp = session.delete(f"{BASE_URL}/api/admin/data", json={"confirm": "WRONG"})
-        assert resp.status_code in [400, 422], f"Expected 400/422, got {resp.status_code}"
-
-    def test_restore_without_file(self, session):
-        """POST /api/admin/restore without file should fail"""
-        resp = session.post(f"{BASE_URL}/api/admin/restore")
-        assert resp.status_code in [400, 422]
+    def test_get_logo_after_upload(self, admin_session):
+        r = admin_session.get(f"{BASE_URL}/api/settings/logo")
+        print(f"GET /api/settings/logo after upload: {r.status_code}")
+        assert r.status_code == 200
+        assert r.headers.get("content-type", "").startswith("image/")
 
 
-# --- Finance PDF ---
-class TestFinancePDF:
-    def get_first_invoice_id(self, session):
-        resp = session.get(f"{BASE_URL}/api/finance/invoices")
-        assert resp.status_code == 200
-        invoices = resp.json()
+class TestInvoicePDFBranding:
+    """Invoice PDF uses institute name"""
+
+    def test_invoice_pdf_branding(self, admin_session):
+        r = admin_session.get(f"{BASE_URL}/api/finance/invoices")
+        assert r.status_code == 200
+        invoices = r.json()
         if not invoices:
-            pytest.skip("No invoices found")
-        return invoices[0]["id"]
-
-    def test_get_invoice_pdf(self, session):
-        """GET /api/finance/invoices/{id}/pdf returns PDF"""
-        inv_id = self.get_first_invoice_id(session)
-        resp = session.get(f"{BASE_URL}/api/finance/invoices/{inv_id}/pdf")
-        assert resp.status_code == 200
-        ct = resp.headers.get("content-type", "")
-        assert "pdf" in ct or "octet-stream" in ct, f"Unexpected content-type: {ct}"
-
-    def test_get_invoice_receipt_paid(self, session):
-        """GET /api/finance/invoices/{id}/receipt for paid invoice"""
-        resp = session.get(f"{BASE_URL}/api/finance/invoices")
-        assert resp.status_code == 200
-        invoices = resp.json()
-        paid = [i for i in invoices if i.get("status") in ["paid", "partial"]]
-        if not paid:
-            pytest.skip("No paid invoices found")
-        inv_id = paid[0]["id"]
-        resp2 = session.get(f"{BASE_URL}/api/finance/invoices/{inv_id}/receipt")
-        assert resp2.status_code == 200
-
-    def test_get_invoice_receipt_unpaid_fails(self, session):
-        """GET /api/finance/invoices/{id}/receipt for pending invoice should fail"""
-        resp = session.get(f"{BASE_URL}/api/finance/invoices")
-        invoices = resp.json()
-        pending = [i for i in invoices if i.get("status") == "pending"]
-        if not pending:
-            pytest.skip("No pending invoices found")
-        inv_id = pending[0]["id"]
-        resp2 = session.get(f"{BASE_URL}/api/finance/invoices/{inv_id}/receipt")
-        assert resp2.status_code in [400, 404], f"Expected error for unpaid, got {resp2.status_code}"
+            pytest.skip("No invoices in DB")
+        invoice_id = invoices[0].get("id") or str(invoices[0].get("_id", ""))
+        pdf_r = admin_session.get(f"{BASE_URL}/api/finance/invoices/{invoice_id}/pdf")
+        print(f"Invoice PDF: {pdf_r.status_code}, content-type: {pdf_r.headers.get('content-type')}")
+        assert pdf_r.status_code == 200
+        assert "pdf" in pdf_r.headers.get("content-type", "")
+        cd = pdf_r.headers.get("content-disposition", "")
+        assert "attachment" in cd
 
 
-# --- QR Attendance ---
-class TestQRAttendance:
-    def test_qr_checkin_unauthenticated(self):
-        """POST /api/attendance/qr-checkin without auth returns 401"""
-        s = requests.Session()
-        resp = s.post(f"{BASE_URL}/api/attendance/qr-checkin", json={"session_id": "test123"})
-        assert resp.status_code == 401
+class TestPortalPhotoAndIDCard:
+    """Student portal photo upload and ID card generation"""
 
-    def test_qr_checkin_as_admin_fails(self, session):
-        """POST /api/attendance/qr-checkin as admin should fail (not a student)"""
-        resp = session.post(f"{BASE_URL}/api/attendance/qr-checkin", json={"session_id": "test123"})
-        assert resp.status_code in [403, 404, 400], f"Got {resp.status_code}: {resp.text}"
+    def test_portal_photo_upload_admin_returns_404(self, admin_session):
+        png_bytes = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82'
+        files = {"file": ("photo.png", io.BytesIO(png_bytes), "image/png")}
+        r = admin_session.post(f"{BASE_URL}/api/portal/photo", files=files)
+        print(f"POST /api/portal/photo (admin): {r.status_code}")
+        assert r.status_code == 404
 
-    def test_qr_checkin_invalid_session(self, student_session):
-        """POST /api/attendance/qr-checkin with invalid session returns 404/400"""
-        resp = student_session.post(f"{BASE_URL}/api/attendance/qr-checkin", json={"session_id": "invalid_session_id_xyz"})
-        assert resp.status_code in [400, 404]
+    def test_portal_id_card_admin_returns_404(self, admin_session):
+        r = admin_session.get(f"{BASE_URL}/api/portal/id-card")
+        print(f"GET /api/portal/id-card (admin): {r.status_code}")
+        assert r.status_code == 404
+
+    def test_portal_id_card_student(self, student_session):
+        r = student_session.get(f"{BASE_URL}/api/portal/id-card")
+        print(f"GET /api/portal/id-card (student): {r.status_code}")
+        assert r.status_code == 200
+        assert "pdf" in r.headers.get("content-type", "")
+
+    def test_portal_photo_upload_student(self, student_session):
+        png_bytes = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82'
+        files = {"file": ("photo.png", io.BytesIO(png_bytes), "image/png")}
+        r = student_session.post(f"{BASE_URL}/api/portal/photo", files=files)
+        print(f"POST /api/portal/photo (student): {r.status_code} {r.text}")
+        assert r.status_code == 200

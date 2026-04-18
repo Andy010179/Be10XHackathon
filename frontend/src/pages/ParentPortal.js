@@ -5,7 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 import {
   User, BookOpen, DollarSign, GraduationCap, LogOut,
-  CheckCircle, X, Clock, ChevronRight, Building2
+  CheckCircle, X, Clock, ChevronRight, Building2, Download, FileText
 } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -207,10 +207,32 @@ export default function ParentPortal() {
                     {inv.status?.toUpperCase()}
                   </span>
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="grid grid-cols-3 gap-2 text-xs mb-3">
                   <div><span className="text-[#8A8F98]">Total</span><p className="font-medium">₹{(inv.total || 0).toLocaleString("en-IN")}</p></div>
                   <div><span className="text-[#8A8F98]">Paid</span><p className="font-medium text-[#00C853]">₹{(inv.paid_amount || 0).toLocaleString("en-IN")}</p></div>
                   <div><span className="text-[#8A8F98]">Balance</span><p className={`font-medium ${inv.balance > 0 ? "text-[#FF2B2B]" : "text-[#00C853]"}`}>₹{(inv.balance || 0).toLocaleString("en-IN")}</p></div>
+                </div>
+                <div className="flex gap-2 pt-2 border-t border-[#E5E7EB]">
+                  <a
+                    href={`${API}/api/finance/invoices/${inv.id}/pdf`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid={`parent-download-invoice-${inv.id}`}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#002EB8]/10 text-[#002EB8] rounded hover:bg-[#002EB8]/20 transition-colors"
+                  >
+                    <FileText size={12} /> Invoice PDF
+                  </a>
+                  {inv.paid_amount > 0 && (
+                    <a
+                      href={`${API}/api/finance/invoices/${inv.id}/receipt`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid={`parent-download-receipt-${inv.id}`}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-green-50 text-green-700 rounded hover:bg-green-100 transition-colors"
+                    >
+                      <Download size={12} /> Receipt PDF
+                    </a>
+                  )}
                 </div>
               </div>
             ))}

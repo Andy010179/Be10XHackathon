@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
+import axios from "axios";
 import { useAuth } from "../contexts/AuthContext";
 import {
   LayoutDashboard, Users, GraduationCap, DollarSign,
   BookOpen, Menu, X, LogOut, ChevronRight, Building2,
-  Users2, UserCog, BarChart2, Settings, MessageSquare, Shield
+  Users2, UserCog, BarChart2, Settings, MessageSquare, Shield, Camera
 } from "lucide-react";
+
+const API = process.env.REACT_APP_BACKEND_URL;
 
 const navItems = [
   { path: "/super-admin",          label: "Institutes",          icon: Shield,           roles: ["super_admin"] },
@@ -35,8 +38,30 @@ export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [logoUrl, setLogoUrl] = useState(null);
+  const logoInputRef = useRef(null);
   const handleLogout = async () => { await logout(); navigate("/login"); };
   const visibleNav = navItems.filter((item) => item.roles.includes(user?.role));
+
+  useEffect(() => {
+    if (!user) return;
+    axios.get(`${API}/api/settings/logo`, { withCredentials: true, responseType: "blob" })
+      .then((res) => setLogoUrl(URL.createObjectURL(res.data)))
+      .catch(() => setLogoUrl(null));
+  }, [user]);
+
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      await axios.post(`${API}/api/settings/logo`, form, { withCredentials: true, headers: { "Content-Type": "multipart/form-data" } });
+      setLogoUrl(URL.createObjectURL(file));
+    } catch (err) {
+      alert("Logo upload failed: " + (err.response?.data?.detail || err.message));
+    }
+  };
 
   return (
     <div className="flex min-h-screen bg-[#F8F9FA]">
@@ -54,21 +79,46 @@ export default function Layout({ children }) {
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 lg:static lg:z-auto`}
       >
         {/* Logo */}
-        <div className="flex items-center justify-between px-6 h-16 border-b border-[#E5E7EB]">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-[#002EB8] rounded flex items-center justify-center">
-              <Building2 size={16} className="text-white" />
-            </div>
-            <span className="font-cabinet font-bold text-[#0A0A0A] text-lg tracking-tight">
-              EduTech LMS
-            </span>
+        <div className="flex items-center justify-between px-4 h-16 border-b border-[#E5E7EB]">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {logoUrl ? (
+              <img src={logoUrl} alt="Institute Logo" className="h-9 max-w-[130px] object-contain rounded" data-testid="sidebar-logo-img" />
+            ) : (
+              <>
+                <div className="w-8 h-8 bg-[#002EB8] rounded flex items-center justify-center shrink-0">
+                  <Building2 size={16} className="text-white" />
+                </div>
+                <span className="font-cabinet font-bold text-[#0A0A0A] text-base tracking-tight truncate">
+                  {user?.institute_name || "EduTech LMS"}
+                </span>
+              </>
+            )}
           </div>
-          <button
-            className="lg:hidden text-[#8A8F98] hover:text-[#0A0A0A]"
-            onClick={() => setSidebarOpen(false)}
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {user?.role === "admin" && (
+              <label
+                htmlFor="logo-upload-input"
+                title="Upload institute logo"
+                className="cursor-pointer p-1.5 rounded hover:bg-[#F8F9FA] text-[#8A8F98] hover:text-[#002EB8] transition-colors"
+                data-testid="logo-upload-btn"
+              >
+                <Camera size={14} />
+              </label>
+            )}
+            <button className="lg:hidden text-[#8A8F98] hover:text-[#0A0A0A] p-1" onClick={() => setSidebarOpen(false)}>
+              <X size={20} />
+            </button>
+          </div>
+          {user?.role === "admin" && (
+            <input
+              id="logo-upload-input"
+              ref={logoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleLogoUpload}
+            />
+          )}
         </div>
 
         {/* Navigation */}
