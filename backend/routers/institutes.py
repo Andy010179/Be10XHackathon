@@ -19,6 +19,9 @@ async def list_institutes(user: dict = Depends(require_super_admin)):
         d["student_count"] = await db.students.count_documents({"institute_id": iid})
         d["enquiry_count"] = await db.enquiries.count_documents({"institute_id": iid})
         d["user_count"] = await db.users.count_documents({"institute_id": iid})
+        admin = await db.users.find_one({"institute_id": iid, "role": "admin"}, {"email": 1, "name": 1})
+        d["admin_email"] = admin.get("email", "") if admin else ""
+        d["admin_name"] = admin.get("name", "") if admin else ""
         result.append(d)
     return result
 

@@ -261,8 +261,20 @@ export default function SuperAdmin() {
               <button onClick={() => setResetInst(null)} className="text-[#8A8F98] hover:text-[#0A0A0A]"><X size={20} /></button>
             </div>
             <form onSubmit={handleResetPassword} className="p-6 space-y-4" data-testid="reset-password-form">
+              {/* Admin account info */}
+              <div className="bg-[#F0F4FF] border border-[#C7D2FE] rounded-lg px-4 py-3">
+                <p className="text-xs font-mono uppercase tracking-widest text-[#8A8F98] mb-1.5">Admin Account</p>
+                {resetInst.admin_email ? (
+                  <>
+                    <p className="text-sm font-semibold text-[#0A0A0A]">{resetInst.admin_name || "—"}</p>
+                    <p className="text-xs text-[#002EB8] font-mono mt-0.5">{resetInst.admin_email}</p>
+                  </>
+                ) : (
+                  <p className="text-xs text-[#FF2B2B]">No admin account found for this institute</p>
+                )}
+              </div>
               <div className="bg-[#FFF8E1] border border-[#FFE082] rounded-lg px-4 py-3 text-xs text-[#8A6000]">
-                This will update the password for the <strong>admin account</strong> of this institute. The admin will need to use the new password on next login.
+                The admin will need to use the new password on their next login.
               </div>
               <div>
                 <label className="block text-xs font-mono uppercase tracking-widest text-[#8A8F98] mb-1">New Password *</label>
@@ -287,8 +299,8 @@ export default function SuperAdmin() {
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setResetInst(null)}
                   className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-lg text-sm hover:bg-[#F8F9FA]">Cancel</button>
-                <button type="submit" disabled={resetSaving} data-testid="reset-password-submit"
-                  className="flex-1 bg-[#FFB300] text-white py-2 rounded-lg text-sm font-medium hover:bg-[#FF8F00] disabled:bg-[#8A8F98]">
+                <button type="submit" disabled={resetSaving || !resetInst.admin_email} data-testid="reset-password-submit"
+                  className="flex-1 bg-[#FFB300] text-white py-2 rounded-lg text-sm font-medium hover:bg-[#FF8F00] disabled:bg-[#8A8F98] disabled:cursor-not-allowed">
                   {resetSaving ? "Updating..." : "Update Password"}
                 </button>
               </div>
