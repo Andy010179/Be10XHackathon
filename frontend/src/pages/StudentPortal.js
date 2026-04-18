@@ -202,35 +202,43 @@ export default function StudentPortal() {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || !streamRef.current) return;
-    if (video.readyState === video.HAVE_ENOUGH_DATA) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(imageData.data, imageData.width, imageData.height);
-      if (code && code.data) {
-        stopCamera();
-        try {
-          const url = new URL(code.data);
-          const sid = url.searchParams.get("session");
-          if (sid) {
-            setSessionCode(sid);
-            toast.success("QR scanned! Submitting attendance...");
-            setTimeout(() => {
-              axios.post(`${API}/api/attendance/qr-checkin`, { session_id: sid }, { withCredentials: true })
-                .then((res) => { setCheckInResult({ success: true, message: res.data.message || "Marked Present!" }); toast.success(res.data.message || "Attendance marked!"); })
-                .catch((err) => { const msg = err.response?.data?.detail || "Check-in failed"; setCheckInResult({ success: false, message: msg }); toast.error(msg); });
-            }, 300);
-          } else {
-            toast.error("QR code does not contain a valid session ID");
+    try {
+      if (
+        video.readyState === video.HAVE_ENOUGH_DATA &&
+        video.videoWidth > 0 &&
+        video.videoHeight > 0
+      ) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+        if (code && code.data) {
+          stopCamera();
+          try {
+            const url = new URL(code.data);
+            const sid = url.searchParams.get("session");
+            if (sid) {
+              setSessionCode(sid);
+              toast.success("QR scanned! Submitting attendance...");
+              setTimeout(() => {
+                axios.post(`${API}/api/attendance/qr-checkin`, { session_id: sid }, { withCredentials: true })
+                  .then((res) => { setCheckInResult({ success: true, message: res.data.message || "Marked Present!" }); toast.success(res.data.message || "Attendance marked!"); })
+                  .catch((err) => { const msg = err.response?.data?.detail || "Check-in failed"; setCheckInResult({ success: false, message: msg }); toast.error(msg); });
+              }, 300);
+            } else {
+              toast.error("QR code does not contain a valid session ID");
+            }
+          } catch {
+            setSessionCode(code.data);
+            toast.info("QR data captured — submit manually");
           }
-        } catch {
-          setSessionCode(code.data);
-          toast.info("QR data captured — submit manually");
+          return;
         }
-        return;
       }
+    } catch (err) {
+      console.error("QR scan frame error:", err);
     }
     scanFrameRef.current = requestAnimationFrame(scanFrame);
   };
