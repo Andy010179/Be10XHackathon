@@ -24,6 +24,7 @@ export default function AttendanceReports() {
   const [sortCol, setSortCol]       = useState("attendance_pct");
   const [sortDir, setSortDir]       = useState("desc");
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     axios.get(`${API}/api/academic/batches`, { withCredentials: true })
       .then((r) => setBatches(r.data))

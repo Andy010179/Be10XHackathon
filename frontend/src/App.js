@@ -22,6 +22,13 @@ import PublicEnquiryForm from "./pages/PublicEnquiryForm";
 import SuperAdmin from "./pages/SuperAdmin";
 import ParentPortal from "./pages/ParentPortal";
 
+// Role constants — defined once to avoid inline array recreation on every render
+const SUPER_ADMIN_ROLES = ["super_admin"];
+const ADMIN_TEACHER_ROLES = ["admin", "teacher"];
+const ADMIN_ONLY_ROLES = ["admin"];
+const ADMIN_EMPLOYER_ROLES = ["admin", "employer"];
+const STUDENT_ADMIN_ROLES = ["student", "admin"];
+
 const ProtectedRoute = ({ children, roles }) => {
   const { user, loading } = useAuth();
   if (loading) {
@@ -55,7 +62,7 @@ function AppRoutes() {
         <Route
           path="/super-admin"
           element={
-            <ProtectedRoute roles={["super_admin"]}>
+            <ProtectedRoute roles={SUPER_ADMIN_ROLES}>
               <Layout><SuperAdmin /></Layout>
             </ProtectedRoute>
           }
@@ -63,7 +70,7 @@ function AppRoutes() {
         <Route
           path="/teacher/attendance"
           element={
-            <ProtectedRoute roles={["admin", "teacher"]}>
+            <ProtectedRoute roles={ADMIN_TEACHER_ROLES}>
               <TeacherAttendance />
             </ProtectedRoute>
           }
@@ -73,7 +80,7 @@ function AppRoutes() {
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute roles={["admin", "employer"]}>
+              <ProtectedRoute roles={ADMIN_EMPLOYER_ROLES}>
                 <Dashboard />
               </ProtectedRoute>
             }
@@ -81,7 +88,7 @@ function AppRoutes() {
           <Route
             path="/enquiries"
             element={
-              <ProtectedRoute roles={["admin"]}>
+              <ProtectedRoute roles={ADMIN_ONLY_ROLES}>
                 <Enquiries />
               </ProtectedRoute>
             }
@@ -89,7 +96,7 @@ function AppRoutes() {
           <Route
             path="/academic"
             element={
-              <ProtectedRoute roles={["admin"]}>
+              <ProtectedRoute roles={ADMIN_ONLY_ROLES}>
                 <Academic />
               </ProtectedRoute>
             }
@@ -97,7 +104,7 @@ function AppRoutes() {
           <Route
             path="/finance"
             element={
-              <ProtectedRoute roles={["admin"]}>
+              <ProtectedRoute roles={ADMIN_ONLY_ROLES}>
                 <Finance />
               </ProtectedRoute>
             }
@@ -105,7 +112,7 @@ function AppRoutes() {
           <Route
             path="/students"
             element={
-              <ProtectedRoute roles={["admin"]}>
+              <ProtectedRoute roles={ADMIN_ONLY_ROLES}>
                 <Students />
               </ProtectedRoute>
             }
@@ -113,7 +120,7 @@ function AppRoutes() {
           <Route
             path="/students/:id"
             element={
-              <ProtectedRoute roles={["admin"]}>
+              <ProtectedRoute roles={ADMIN_ONLY_ROLES}>
                 <StudentProfile />
               </ProtectedRoute>
             }
@@ -121,7 +128,7 @@ function AppRoutes() {
           <Route
             path="/courses"
             element={
-              <ProtectedRoute roles={["admin"]}>
+              <ProtectedRoute roles={ADMIN_ONLY_ROLES}>
                 <Courses />
               </ProtectedRoute>
             }
@@ -129,7 +136,7 @@ function AppRoutes() {
           <Route
             path="/users"
             element={
-              <ProtectedRoute roles={["admin"]}>
+              <ProtectedRoute roles={ADMIN_ONLY_ROLES}>
                 <UserManagement />
               </ProtectedRoute>
             }
@@ -137,7 +144,7 @@ function AppRoutes() {
           <Route
             path="/portal"
             element={
-              <ProtectedRoute roles={["student", "admin"]}>
+              <ProtectedRoute roles={STUDENT_ADMIN_ROLES}>
                 <StudentPortal />
               </ProtectedRoute>
             }
@@ -145,7 +152,7 @@ function AppRoutes() {
           <Route
             path="/attendance-reports"
             element={
-              <ProtectedRoute roles={["admin"]}>
+              <ProtectedRoute roles={ADMIN_ONLY_ROLES}>
                 <AttendanceReports />
               </ProtectedRoute>
             }
@@ -153,7 +160,7 @@ function AppRoutes() {
           <Route
             path="/settings"
             element={
-              <ProtectedRoute roles={["admin"]}>
+              <ProtectedRoute roles={ADMIN_ONLY_ROLES}>
                 <Settings />
               </ProtectedRoute>
             }
@@ -161,7 +168,7 @@ function AppRoutes() {
           <Route
             path="/fee-queries"
             element={
-              <ProtectedRoute roles={["admin"]}>
+              <ProtectedRoute roles={ADMIN_ONLY_ROLES}>
                 <FeeQueries />
               </ProtectedRoute>
             }

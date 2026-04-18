@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useMemo } from "react";
 import axios from "axios";
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -31,8 +31,15 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
+  // Memoize context value so consumers only re-render when user changes
+  const value = useMemo(
+    () => ({ user, loading: user === undefined, login, logout, setUser }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user]
+  );
+
   return (
-    <AuthContext.Provider value={{ user, loading: user === undefined, login, logout, setUser }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

@@ -537,7 +537,7 @@ async def login(data: UserLogin, response: Response):
         user = await db.users.find_one({"email": email})
     if not user or not verify_password(data.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    if user.get("is_active") is False:
+    if user.get("is_active") == False:  # noqa: E712
         raise HTTPException(status_code=401, detail="Account is inactive")
     user_id = str(user["_id"])
     access_token = create_access_token(user_id, email)
@@ -2340,6 +2340,7 @@ async def create_parent_account(data: ParentInvite, user: dict = Depends(require
     iid = user.get("institute_id")
     if await db.users.find_one({"email": email, "institute_id": iid} if iid else {"email": email}):
         raise HTTPException(status_code=400, detail="Email already registered")
+    student = None
     try:
         student = await db.students.find_one({"_id": ObjectId(data.student_id)})
     except Exception:

@@ -6,9 +6,11 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   Building2, LogOut, User, BookOpen, DollarSign,
   Award, MessageSquare, Pencil, X, Send, CheckCircle,
-  Download, Clock, TrendingUp, CreditCard, Smartphone, QrCode, Camera, IdCard, Upload
+  Download, Clock, TrendingUp, CreditCard, Smartphone, QrCode, Camera, Upload
 } from "lucide-react";
 import jsQR from "jsqr";
+import { PortalIDCard } from "../components/portal/PortalIDCard";
+import { PortalQRCheckin } from "../components/portal/PortalQRCheckin";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -76,6 +78,7 @@ export default function StudentPortal() {
       document.body.appendChild(s);
     });
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchAll();
   }, []);
@@ -677,184 +680,31 @@ export default function StudentPortal() {
 
       {/* ID CARD TAB */}
       {activeTab === "idcard" && (
-        <div className="space-y-4">
-          <div className="bg-white border border-[#E5E7EB] rounded-lg p-6">
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-[#002EB8]/10 rounded-full flex items-center justify-center">
-                  <CreditCard size={20} className="text-[#002EB8]" />
-                </div>
-                <div>
-                  <h3 className="font-cabinet font-bold text-base text-[#0A0A0A]">Student ID Card</h3>
-                  <p className="text-xs text-[#8A8F98]">Your digital identity card — download and print</p>
-                </div>
-              </div>
-              <button
-                onClick={handleDownloadIdCard}
-                disabled={idCardLoading}
-                data-testid="download-id-card-btn"
-                className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] text-white text-sm rounded-md hover:bg-[#001A85] disabled:bg-[#8A8F98] font-medium transition-colors"
-              >
-                <Download size={14} />
-                {idCardLoading ? "Generating..." : "Download PDF"}
-              </button>
-            </div>
-            {/* Preview card */}
-            <div className="rounded-xl overflow-hidden border border-[#E5E7EB] max-w-lg mx-auto">
-              {/* Card header */}
-              <div className="bg-[#001C82] px-5 py-4 flex items-center justify-between">
-                <div>
-                  <p className="text-white font-cabinet font-bold text-base tracking-wide">{student?.institute_name || "Institute"}</p>
-                  <p className="text-[#AAB8F5] text-xs mt-0.5">STUDENT IDENTITY CARD</p>
-                </div>
-                <CreditCard size={28} className="text-[#AAB8F5]" />
-              </div>
-              {/* Card body */}
-              <div className="bg-[#F8F9FA] px-5 py-4 flex gap-4">
-                {/* Photo */}
-                <div className="shrink-0">
-                  <div className="w-20 h-24 rounded-lg border-2 border-[#E5E7EB] bg-white overflow-hidden flex items-center justify-center relative">
-                    {studentPhoto || student?.photo ? (
-                      <img src={studentPhoto || `data:${student?.photo_mime || "image/jpeg"};base64,${student?.photo}`} alt="Student" className="w-full h-full object-cover" />
-                    ) : (
-                      <User size={32} className="text-[#8A8F98]" />
-                    )}
-                  </div>
-                  <label htmlFor="student-photo-input" className="mt-2 flex items-center justify-center gap-1 text-xs text-[#002EB8] cursor-pointer hover:underline" data-testid="upload-photo-btn">
-                    {photoUploading ? "Uploading..." : <><Upload size={10} /> Upload photo</>}
-                  </label>
-                  <input id="student-photo-input" ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
-                </div>
-                {/* Info */}
-                <div className="flex-1 space-y-2">
-                  <div>
-                    <p className="text-xs text-[#8A8F98] uppercase tracking-wide">Name</p>
-                    <p className="font-cabinet font-bold text-sm text-[#0A0A0A]">{student?.name || "—"}</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <p className="text-xs text-[#8A8F98] uppercase tracking-wide">Student ID</p>
-                      <p className="text-xs font-medium font-mono">{student?.enrollment_no || "—"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-[#8A8F98] uppercase tracking-wide">Mobile</p>
-                      <p className="text-xs font-medium">{student?.phone || "—"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-[#8A8F98] uppercase tracking-wide">Course</p>
-                      <p className="text-xs font-medium truncate">{student?.course_name || "—"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-[#8A8F98] uppercase tracking-wide">Joined</p>
-                      <p className="text-xs font-medium">{student?.created_at ? new Date(student.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</p>
-                    </div>
-                  </div>
-                  <div className="bg-[#EEF2FF] rounded-md px-3 py-2">
-                    <p className="text-xs text-[#8A8F98] uppercase tracking-wide">Parent / Guardian</p>
-                    <p className="text-xs font-medium">{student?.guardian_name || "—"}</p>
-                    <p className="text-xs text-[#8A8F98]">{student?.guardian_phone || "—"}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <PortalIDCard
+          student={student}
+          studentPhoto={studentPhoto}
+          photoUploading={photoUploading}
+          idCardLoading={idCardLoading}
+          handlePhotoUpload={handlePhotoUpload}
+          handleDownloadIdCard={handleDownloadIdCard}
+        />
       )}
 
       {/* QR CHECK-IN TAB */}
       {activeTab === "checkin" && (
-        <div className="space-y-4">
-          <div className="bg-white border border-[#E5E7EB] rounded-lg p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-[#002EB8]/10 rounded-full flex items-center justify-center">
-                <QrCode size={20} className="text-[#002EB8]" />
-              </div>
-              <div>
-                <h3 className="font-cabinet font-bold text-base text-[#0A0A0A]">QR Code Attendance Check-in</h3>
-                <p className="text-xs text-[#8A8F98]">Scan the QR code with your camera or enter session code</p>
-              </div>
-            </div>
-
-            {/* Camera scanner */}
-            <div className="mb-4">
-              {!cameraActive ? (
-                <button
-                  onClick={startCamera}
-                  data-testid="start-camera-btn"
-                  className="flex items-center gap-2 px-4 py-2.5 border border-[#002EB8] text-[#002EB8] text-sm rounded-md hover:bg-[#002EB8]/5 font-medium transition-colors w-full justify-center"
-                >
-                  <Camera size={16} /> Scan QR with Camera
-                </button>
-              ) : (
-                <div className="relative rounded-lg overflow-hidden border border-[#002EB8]">
-                  <video ref={videoRef} muted playsInline className="w-full max-h-56 object-cover" data-testid="qr-video" />
-                  <canvas ref={canvasRef} className="hidden" />
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="w-40 h-40 border-2 border-white rounded-lg opacity-70" />
-                  </div>
-                  <button
-                    onClick={stopCamera}
-                    data-testid="stop-camera-btn"
-                    className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1.5 hover:bg-black/80"
-                  >
-                    <X size={14} />
-                  </button>
-                  <p className="absolute bottom-2 left-0 right-0 text-center text-xs text-white bg-black/40 py-1">
-                    Point camera at the QR code
-                  </p>
-                </div>
-              )}
-              {cameraError && <p className="text-xs text-[#FF2B2B] mt-2">{cameraError}</p>}
-            </div>
-
-            <div className="flex items-center gap-3 mb-4">
-              <div className="flex-1 h-px bg-[#E5E7EB]" />
-              <span className="text-xs text-[#8A8F98]">or enter session code manually</span>
-              <div className="flex-1 h-px bg-[#E5E7EB]" />
-            </div>
-
-            <form onSubmit={handleQrCheckIn} className="space-y-4" data-testid="qr-checkin-form">
-              <div>
-                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Session Code</label>
-                <input
-                  type="text"
-                  value={sessionCode}
-                  onChange={(e) => setSessionCode(e.target.value)}
-                  placeholder="Paste or type the session code from teacher's QR..."
-                  required
-                  data-testid="session-code-input"
-                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-[#002EB8]"
-                />
-                <p className="text-xs text-[#8A8F98] mt-1">Ask your teacher for the Session ID displayed on their QR code panel</p>
-              </div>
-              <button type="submit" disabled={checkInLoading || !sessionCode.trim()}
-                data-testid="qr-checkin-submit"
-                className="flex items-center gap-2 px-5 py-2.5 bg-[#002EB8] text-white text-sm rounded-md hover:bg-[#001A85] disabled:bg-[#8A8F98] transition-colors font-medium">
-                {checkInLoading ? "Checking in..." : <><CheckCircle size={14} /> Mark Attendance</>}
-              </button>
-            </form>
-            {checkInResult && (
-              <div className={`mt-4 p-4 rounded-lg border flex items-center gap-3 ${checkInResult.success ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}
-                data-testid="checkin-result">
-                {checkInResult.success
-                  ? <CheckCircle size={18} className="text-[#00C853] shrink-0" />
-                  : <X size={18} className="text-[#FF2B2B] shrink-0" />}
-                <p className={`text-sm font-medium ${checkInResult.success ? "text-green-800" : "text-red-800"}`}>
-                  {checkInResult.message}
-                </p>
-              </div>
-            )}
-          </div>
-          <div className="bg-[#F8F9FA] border border-[#E5E7EB] rounded-lg p-4 text-xs text-[#8A8F98] space-y-1">
-            <p className="font-medium text-[#0A0A0A] text-sm mb-2">How to check in</p>
-            <ol className="list-decimal list-inside space-y-1.5">
-              <li>Your teacher will display a QR code at the start of class</li>
-              <li>Tap "Scan QR with Camera" above and point at the QR code</li>
-              <li>Attendance is marked automatically once scanned</li>
-              <li>Or ask your teacher for the Session ID and enter it manually</li>
-            </ol>
-          </div>
-        </div>
+        <PortalQRCheckin
+          sessionCode={sessionCode}
+          setSessionCode={setSessionCode}
+          checkInLoading={checkInLoading}
+          checkInResult={checkInResult}
+          handleQrCheckIn={handleQrCheckIn}
+          cameraActive={cameraActive}
+          videoRef={videoRef}
+          canvasRef={canvasRef}
+          startCamera={startCamera}
+          stopCamera={stopCamera}
+          cameraError={cameraError}
+        />
       )}
 
       {/* FEE QUERY TAB */}

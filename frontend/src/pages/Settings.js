@@ -30,6 +30,7 @@ export default function Settings() {
   const [deleting, setDeleting] = useState(false);
   const [restoreResult, setRestoreResult] = useState(null);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     Promise.all([
       axios.get(`${API}/api/settings/razorpay`, { withCredentials: true }),

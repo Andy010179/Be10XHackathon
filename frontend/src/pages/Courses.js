@@ -20,6 +20,7 @@ export default function Courses() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     Promise.all([
       axios.get(`${API}/api/courses`, { withCredentials: true }),
