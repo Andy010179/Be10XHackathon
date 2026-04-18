@@ -3,7 +3,7 @@ import axios from "axios";
 import { toast } from "sonner";
 import {
   Building2, Plus, X, Users, FileText, ToggleLeft, ToggleRight,
-  Eye, EyeOff, Trash2, Pencil, TrendingUp, Shield
+  Eye, EyeOff, Trash2, Pencil, TrendingUp, Shield, KeyRound
 } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -20,10 +20,20 @@ export default function SuperAdmin() {
   const [editInst, setEditInst] = useState(null);
   const [editForm, setEditForm] = useState({ name: "", phone: "", address: "" });
   const [editSaving, setEditSaving] = useState(false);
+  const [resetInst, setResetInst] = useState(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [resetSaving, setResetSaving] = useState(false);
 
   const openEdit = (inst) => {
     setEditInst(inst);
     setEditForm({ name: inst.name, phone: inst.phone || "", address: inst.address || "" });
+  };
+
+  const openReset = (inst) => {
+    setResetInst(inst);
+    setNewPassword("");
+    setShowNewPw(false);
   };
 
   const handleEditSave = async (e) => {
@@ -84,6 +94,24 @@ export default function SuperAdmin() {
     } catch { toast.error("Failed to delete"); }
   };
 
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    if (newPassword.length < 6) { toast.error("Password must be at least 6 characters"); return; }
+    setResetSaving(true);
+    try {
+      const res = await axios.post(
+        `${API}/api/institutes/${resetInst.id}/reset-admin-password`,
+        { new_password: newPassword },
+        { withCredentials: true }
+      );
+      toast.success(`Password updated for ${res.data.admin_email}`);
+      setResetInst(null);
+      setNewPassword("");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to reset password");
+    } finally { setResetSaving(false); }
+  };
+
   return (
     <div className="p-6 max-w-6xl mx-auto font-satoshi">
       <div className="flex items-start justify-between mb-6">
@@ -131,6 +159,10 @@ export default function SuperAdmin() {
                 <button onClick={() => openEdit(inst)} data-testid={`edit-institute-${inst.id}`}
                   className="text-[#8A8F98] hover:text-[#002EB8] transition-colors" title="Edit">
                   <Pencil size={15} />
+                </button>
+                <button onClick={() => openReset(inst)} data-testid={`reset-pw-${inst.id}`}
+                  className="text-[#8A8F98] hover:text-[#FFB300] transition-colors" title="Reset Admin Password">
+                  <KeyRound size={15} />
                 </button>
                 <button onClick={() => toggleActive(inst)} data-testid={`toggle-${inst.id}`}
                   className="text-[#8A8F98] hover:text-[#0A0A0A] transition-colors" title={inst.is_active ? "Deactivate" : "Activate"}>
@@ -217,9 +249,55 @@ export default function SuperAdmin() {
           </div>
         </div>
       )}
-      {/* Edit Institute Modal */}
-      {editInst && (
+      {/* Reset Admin Password Modal */}
+      {resetInst && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl border border-[#E5E7EB] w-full max-w-sm shadow-xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
+              <div>
+                <h3 className="font-cabinet font-bold text-base text-[#0A0A0A]">Reset Admin Password</h3>
+                <p className="text-xs text-[#8A8F98] mt-0.5">{resetInst.name} · <span className="font-mono">{resetInst.code}</span></p>
+              </div>
+              <button onClick={() => setResetInst(null)} className="text-[#8A8F98] hover:text-[#0A0A0A]"><X size={20} /></button>
+            </div>
+            <form onSubmit={handleResetPassword} className="p-6 space-y-4" data-testid="reset-password-form">
+              <div className="bg-[#FFF8E1] border border-[#FFE082] rounded-lg px-4 py-3 text-xs text-[#8A6000]">
+                This will update the password for the <strong>admin account</strong> of this institute. The admin will need to use the new password on next login.
+              </div>
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-widest text-[#8A8F98] mb-1">New Password *</label>
+                <div className="relative">
+                  <input
+                    required
+                    type={showNewPw ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Min. 6 characters"
+                    minLength={6}
+                    autoComplete="new-password"
+                    data-testid="new-password-input"
+                    className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 pr-9 text-sm focus:outline-none focus:border-[#002EB8]"
+                  />
+                  <button type="button" onClick={() => setShowNewPw(!showNewPw)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8A8F98] hover:text-[#0A0A0A]">
+                    {showNewPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => setResetInst(null)}
+                  className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-lg text-sm hover:bg-[#F8F9FA]">Cancel</button>
+                <button type="submit" disabled={resetSaving} data-testid="reset-password-submit"
+                  className="flex-1 bg-[#FFB300] text-white py-2 rounded-lg text-sm font-medium hover:bg-[#FF8F00] disabled:bg-[#8A8F98]">
+                  {resetSaving ? "Updating..." : "Update Password"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Edit Institute Modal */}
+      {editInst && (        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl border border-[#E5E7EB] w-full max-w-md shadow-xl">
             <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
               <div>

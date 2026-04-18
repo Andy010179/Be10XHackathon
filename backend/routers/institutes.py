@@ -58,3 +58,21 @@ async def update_institute(institute_id: str, data: InstituteUpdate, user: dict 
 async def delete_institute(institute_id: str, user: dict = Depends(require_super_admin)):
     await db.institutes.delete_one({"_id": ObjectId(institute_id)})
     return {"message": "Institute deleted"}
+
+
+@institutes_router.post("/{institute_id}/reset-admin-password")
+async def reset_admin_password(institute_id: str, data: dict, user: dict = Depends(require_super_admin)):
+    new_password = data.get("new_password", "").strip()
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    inst = await db.institutes.find_one({"_id": ObjectId(institute_id)})
+    if not inst:
+        raise HTTPException(status_code=404, detail="Institute not found")
+    admin = await db.users.find_one({"institute_id": institute_id, "role": "admin"})
+    if not admin:
+        raise HTTPException(status_code=404, detail="No admin user found for this institute")
+    await db.users.update_one(
+        {"_id": admin["_id"]},
+        {"$set": {"password_hash": hash_password(new_password)}}
+    )
+    return {"message": f"Password updated for {admin.get('email')}", "admin_email": admin.get("email")}
