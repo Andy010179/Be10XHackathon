@@ -6,7 +6,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   Cell, ResponsiveContainer
 } from "recharts";
-import { TrendingUp, Users, DollarSign, Target, Sparkles, RefreshCw, Filter, X, Building2 } from "lucide-react";
+import { TrendingUp, Users, DollarSign, Target, Sparkles, RefreshCw, Filter, X, ArrowRight, Building2 } from "lucide-react";
 import { BranchDetailPanel } from "../components/dashboard/BranchDetailPanel";
 
 const API = process.env.REACT_APP_BACKEND_URL;
