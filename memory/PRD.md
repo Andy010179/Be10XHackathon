@@ -152,7 +152,13 @@ Build a full-stack Learning Management System (LMS) called EduTech-LMS with:
 - Added `// eslint-disable-next-line react-hooks/exhaustive-deps` to all intentional fetch-on-mount effects (API/axios are module-level constants, not component state)
 - Confirmed Python `is None` / `is not None` patterns are **correct PEP 8 idioms** — not changed
 
-### Phase 8 — Bug Fix (April 2026)
+### Phase 9 (Complete — April 2026)
+- **White-Label PDF Branding**: Invoice and receipt PDFs now use the institute's name (fetched from DB via `get_institute_branding()` helper) instead of hardcoded "EduTech LMS". Logo also rendered in PDF header if uploaded.
+- **Logo Customization**: `POST /api/settings/logo` (admin, stores base64 in `app_settings`), `GET /api/settings/logo` (returns image). Sidebar shows uploaded logo; admin sees camera icon to click-upload.
+- **QR Attendance Camera Scanner**: jsQR library added; Student Portal QR Check-in tab now has "Scan QR with Camera" button using `getUserMedia` + jsQR frame scanning → auto-submits session_id on QR detect.
+- **Parental Invoice Downloads**: Parent Portal Fees tab has "Invoice PDF" and "Receipt PDF" download links per invoice.
+- **Digital Student ID Card**: New "ID Card" tab in Student Portal. `POST /api/portal/photo` (student photo upload, stored as base64 on student record). `GET /api/portal/id-card` generates A5-landscape PDF ID card with photo, student info, course, joining date, parent info, institute branding.
+- Bug fixed by testing agent: `HexColor` was not importable in `get_student_id_card()` scope — fixed by adding import inside function.
 - **Dashboard Multi-Tenancy Isolation Fix**: All dashboard and attendance report queries were missing `ifilter(user)` — fixed across 4 endpoints:
   - `get_stats()`: student_filter, invoice_filter, enquiries, branches, courses, monthly trends — all now scoped by institute_id
   - `get_branch_revenue_detail()`: branch lookup, students, invoices — scoped
