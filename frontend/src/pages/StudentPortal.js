@@ -263,8 +263,15 @@ export default function StudentPortal() {
   const handleDownloadIdCard = async () => {
     setIdCardLoading(true);
     try {
-      const res = await axios.get(`${API}/api/portal/id-card`, { withCredentials: true, responseType: "blob" });
-      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      const res = await fetch(`${API}/api/portal/id-card`, { credentials: "include" });
+      if (!res.ok) {
+        let detail = "Failed to generate ID card";
+        try { const e = await res.json(); if (e.detail) detail = e.detail; } catch {}
+        toast.error(detail);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = `Student_ID_Card.pdf`;
@@ -281,11 +288,15 @@ export default function StudentPortal() {
   const downloadCertificate = async () => {
     if (!certificate) return;
     try {
-      const response = await axios.get(`${API}/api/portal/certificate/pdf`, {
-        withCredentials: true,
-        responseType: "blob",
-      });
-      const url = URL.createObjectURL(new Blob([response.data], { type: "application/pdf" }));
+      const res = await fetch(`${API}/api/portal/certificate/pdf`, { credentials: "include" });
+      if (!res.ok) {
+        let detail = "Failed to download certificate";
+        try { const e = await res.json(); if (e.detail) detail = e.detail; } catch {}
+        toast.error(detail);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = `EduTech_Certificate_${certificate.student_name?.replace(/\s/g, "_")}.pdf`;

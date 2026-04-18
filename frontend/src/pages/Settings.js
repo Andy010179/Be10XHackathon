@@ -96,11 +96,10 @@ export default function Settings() {
   const handleDownloadBackup = async () => {
     setBackupLoading(true);
     try {
-      const res = await axios.get(`${API}/api/admin/backup`, {
-        withCredentials: true,
-        responseType: "blob",
-      });
-      const url = URL.createObjectURL(res.data);
+      const res = await fetch(`${API}/api/admin/backup`, { credentials: "include" });
+      if (!res.ok) { toast.error("Failed to download backup"); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       const ts = new Date().toISOString().slice(0, 10);
       a.href = url;

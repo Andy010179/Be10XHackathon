@@ -197,19 +197,22 @@ export default function Finance() {
 
   const downloadPdf = async (invoiceId, type) => {
     try {
-      const res = await axios.get(`${API}/api/finance/invoices/${invoiceId}/${type}`, {
-        withCredentials: true,
-        responseType: "blob",
-      });
-      const url = URL.createObjectURL(res.data);
+      const res = await fetch(`${API}/api/finance/invoices/${invoiceId}/${type}`, { credentials: "include" });
+      if (!res.ok) {
+        let detail = `Failed to download ${type}`;
+        try { const e = await res.json(); if (e.detail) detail = e.detail; } catch {}
+        toast.error(detail);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = `${type}_${invoiceId.slice(-8)}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (err) {
-      const msg = err.response?.data?.detail || `Failed to download ${type}`;
-      toast.error(typeof msg === "string" ? msg : `Failed to download ${type}`);
+    } catch {
+      toast.error(`Failed to download ${type}`);
     }
   };
 
