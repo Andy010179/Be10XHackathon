@@ -45,8 +45,13 @@ export default function Layout({ children }) {
 
   useEffect(() => {
     if (!user) return;
-    axios.get(`${API}/api/settings/logo`, { withCredentials: true, responseType: "blob" })
-      .then((res) => setLogoUrl(URL.createObjectURL(res.data)))
+    // Use fetch() instead of axios for blob responses to avoid XHR responseType errors on 404
+    fetch(`${API}/api/settings/logo`, { credentials: "include" })
+      .then((res) => {
+        if (!res.ok) throw new Error("no-logo");
+        return res.blob();
+      })
+      .then((blob) => setLogoUrl(URL.createObjectURL(blob)))
       .catch(() => setLogoUrl(null));
   }, [user]);
 
