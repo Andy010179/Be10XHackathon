@@ -30,6 +30,9 @@ from routers.institutes import institutes_router
 from routers.parent import parent_router
 from routers.public import public_router
 from routers.staff import staff_router
+from routers.wages import wages_router
+from routers.staff_attendance import staff_attendance_router
+from routers.library import library_router
 
 logging.basicConfig(level=logging.INFO)
 
@@ -72,6 +75,9 @@ api_router.include_router(institutes_router)
 api_router.include_router(parent_router)
 api_router.include_router(public_router)
 api_router.include_router(staff_router)
+api_router.include_router(wages_router)
+api_router.include_router(staff_attendance_router)
+api_router.include_router(library_router)
 
 app.include_router(api_router)
 

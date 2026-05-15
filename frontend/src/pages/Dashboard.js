@@ -6,7 +6,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   Cell, ResponsiveContainer
 } from "recharts";
-import { TrendingUp, Users, DollarSign, Target, Sparkles, RefreshCw, Filter, X, ArrowRight, Building2 } from "lucide-react";
+import { TrendingUp, Users, DollarSign, Target, Sparkles, RefreshCw, Filter, X, ArrowRight, Building2, FileDown } from "lucide-react";
 import { BranchDetailPanel } from "../components/dashboard/BranchDetailPanel";
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -60,6 +60,8 @@ export default function Dashboard() {
   const [branchDetailLoading, setBranchDetailLoading] = useState(false);
   const [showBranchDetail, setShowBranchDetail] = useState(false);
 
+  const [revenueExporting, setRevenueExporting] = useState(false);
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchBranches(); }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -106,6 +108,23 @@ export default function Dashboard() {
       const { branch_id, branch } = data.activePayload[0].payload;
       fetchBranchDetail(branch_id, branch);
     }
+  };
+
+  const handleExportRevenuePDF = async () => {
+    setRevenueExporting(true);
+    try {
+      const res = await fetch(`${API}/api/dashboard/revenue-pdf`, { credentials: "include" });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || "Export failed"); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Revenue_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Revenue report exported!");
+    } catch (err) { toast.error(err.message || "Export failed"); }
+    finally { setRevenueExporting(false); }
   };
 
   const handleBranchChange = (val) => {
@@ -202,9 +221,18 @@ export default function Dashboard() {
         <div className="lg:col-span-2 bg-white border border-[#E5E7EB] p-6">
           <div className="flex items-center justify-between mb-1">
             <h3 className="font-cabinet font-bold text-lg tracking-tight text-[#0A0A0A]">Revenue by Branch</h3>
-            <span className="text-xs text-[#8A8F98] flex items-center gap-1">
-              <ArrowRight size={11} /> Click a bar for details
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExportRevenuePDF}
+                disabled={revenueExporting}
+                data-testid="export-revenue-pdf-btn"
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-[#E5E7EB] text-[#8A8F98] text-xs rounded-md hover:border-[#002EB8] hover:text-[#002EB8] transition-colors disabled:opacity-50">
+                <FileDown size={12} /> {revenueExporting ? "Exporting..." : "Export PDF"}
+              </button>
+              <span className="text-xs text-[#8A8F98] flex items-center gap-1">
+                <ArrowRight size={11} /> Click bar for details
+              </span>
+            </div>
           </div>
           <p className="text-xs text-[#8A8F98] mb-3">Collected fee revenue per branch</p>
           {(stats?.revenue_by_branch || []).length === 0 ? (

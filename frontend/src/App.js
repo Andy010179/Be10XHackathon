@@ -22,6 +22,9 @@ import PublicEnquiryForm from "./pages/PublicEnquiryForm";
 import SuperAdmin from "./pages/SuperAdmin";
 import StaffPortal from "./pages/StaffPortal";
 import ParentPortal from "./pages/ParentPortal";
+import Library from "./pages/Library";
+import StaffAttendance from "./pages/StaffAttendance";
+import Wages from "./pages/Wages";
 
 // Role constants — defined once to avoid inline array recreation on every render
 const SUPER_ADMIN_ROLES = ["super_admin"];
@@ -183,6 +186,30 @@ function AppRoutes() {
           element={
             <ProtectedRoute roles={STAFF_ROLES}>
               <Layout><StaffPortal /></Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/library"
+          element={
+            <ProtectedRoute>
+              <Layout><Library /></Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/wages"
+          element={
+            <ProtectedRoute roles={["admin", "employer"]}>
+              <Layout><Wages /></Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/staff-attendance"
+          element={
+            <ProtectedRoute roles={["admin", "employer"]}>
+              <Layout><StaffAttendance /></Layout>
             </ProtectedRoute>
           }
         />

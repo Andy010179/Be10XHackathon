@@ -3,12 +3,13 @@ import axios from "axios";
 import { toast } from "sonner";
 import {
   Building2, Plus, X, Users, FileText, ToggleLeft, ToggleRight,
-  Eye, EyeOff, Trash2, Pencil, TrendingUp, Shield, KeyRound
+  Eye, EyeOff, Trash2, Pencil, TrendingUp, Shield, KeyRound, Globe, Settings, Settings2
 } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
 const EMPTY_FORM = { name: "", code: "", admin_name: "", admin_email: "", admin_password: "", phone: "", address: "" };
+const EMPTY_GLOBAL = { account_sid: "", auth_token: "", phone_number: "", key_id: "", key_secret: "" };
 
 export default function SuperAdmin() {
   const [institutes, setInstitutes] = useState([]);
@@ -25,6 +26,14 @@ export default function SuperAdmin() {
   const [showNewPw, setShowNewPw] = useState(false);
   const [resetSaving, setResetSaving] = useState(false);
 
+  // Settings sync state
+  const [settingsInst, setSettingsInst] = useState(null);
+  const [instSettings, setInstSettings] = useState({});
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [showGlobalPush, setShowGlobalPush] = useState(false);
+  const [globalForm, setGlobalForm] = useState(EMPTY_GLOBAL);
+  const [pushing, setPushing] = useState(false);
+
   const openEdit = (inst) => {
     setEditInst(inst);
     setEditForm({ name: inst.name, phone: inst.phone || "", address: inst.address || "" });
@@ -34,6 +43,44 @@ export default function SuperAdmin() {
     setResetInst(inst);
     setNewPassword("");
     setShowNewPw(false);
+  };
+
+  const openSettings = async (inst) => {
+    setSettingsInst(inst);
+    try {
+      const res = await axios.get(`${API}/api/institutes/${inst.id}/settings`, { withCredentials: true });
+      setInstSettings(res.data || {});
+    } catch { setInstSettings({}); }
+  };
+
+  const handleSaveInstSettings = async () => {
+    setSettingsSaving(true);
+    try {
+      await axios.put(`${API}/api/institutes/${settingsInst.id}/settings`, instSettings, { withCredentials: true });
+      toast.success("Settings saved for " + settingsInst.name);
+      setSettingsInst(null);
+    } catch (err) { toast.error(err.response?.data?.detail || "Failed to save settings"); }
+    finally { setSettingsSaving(false); }
+  };
+
+  const handlePushGlobal = async (e) => {
+    e.preventDefault();
+    setPushing(true);
+    const payload = {};
+    if (globalForm.account_sid || globalForm.auth_token || globalForm.phone_number) {
+      payload.twilio = { account_sid: globalForm.account_sid, auth_token: globalForm.auth_token, phone_number: globalForm.phone_number };
+    }
+    if (globalForm.key_id || globalForm.key_secret) {
+      payload.razorpay = { key_id: globalForm.key_id, key_secret: globalForm.key_secret };
+    }
+    if (!Object.keys(payload).length) { toast.error("Fill at least one service field"); setPushing(false); return; }
+    try {
+      const res = await axios.post(`${API}/api/institutes/push-global-settings`, payload, { withCredentials: true });
+      toast.success(res.data.message);
+      setShowGlobalPush(false);
+      setGlobalForm(EMPTY_GLOBAL);
+    } catch (err) { toast.error(err.response?.data?.detail || "Push failed"); }
+    finally { setPushing(false); }
   };
 
   const handleEditSave = async (e) => {
@@ -126,6 +173,10 @@ export default function SuperAdmin() {
           className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] text-white text-sm rounded-lg hover:bg-[#001A85] font-medium">
           <Plus size={14} /> New Institute
         </button>
+        <button onClick={() => setShowGlobalPush(true)} data-testid="push-global-settings-btn"
+          className="flex items-center gap-2 px-4 py-2 border border-[#E5E7EB] text-[#8A8F98] text-sm rounded-lg hover:border-[#002EB8] hover:text-[#002EB8] transition-colors">
+          <Globe size={14} /> Push Global Settings
+        </button>
       </div>
 
       {loading ? (
@@ -163,6 +214,10 @@ export default function SuperAdmin() {
                 <button onClick={() => openReset(inst)} data-testid={`reset-pw-${inst.id}`}
                   className="text-[#8A8F98] hover:text-[#FFB300] transition-colors" title="Reset Admin Password">
                   <KeyRound size={15} />
+                </button>
+                <button onClick={() => openSettings(inst)} data-testid={`settings-${inst.id}`}
+                  className="text-[#8A8F98] hover:text-[#7C3AED] transition-colors" title="View/Edit Settings">
+                  <Settings2 size={15} />
                 </button>
                 <button onClick={() => toggleActive(inst)} data-testid={`toggle-${inst.id}`}
                   className="text-[#8A8F98] hover:text-[#0A0A0A] transition-colors" title={inst.is_active ? "Deactivate" : "Activate"}>
@@ -302,6 +357,98 @@ export default function SuperAdmin() {
                 <button type="submit" disabled={resetSaving || !resetInst.admin_email} data-testid="reset-password-submit"
                   className="flex-1 bg-[#FFB300] text-white py-2 rounded-lg text-sm font-medium hover:bg-[#FF8F00] disabled:bg-[#8A8F98] disabled:cursor-not-allowed">
                   {resetSaving ? "Updating..." : "Update Password"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Institute Settings Modal */}
+      {settingsInst && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl border border-[#E5E7EB] w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
+              <div>
+                <h3 className="font-cabinet font-bold text-base text-[#0A0A0A]">Settings — {settingsInst.name}</h3>
+                <p className="text-xs text-[#8A8F98]">View and edit integration credentials for this institute</p>
+              </div>
+              <button onClick={() => setSettingsInst(null)}><X size={20} className="text-[#8A8F98]" /></button>
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="border border-[#E5E7EB] rounded-lg p-4 space-y-3">
+                <p className="text-xs font-mono uppercase tracking-widest text-[#8A8F98] font-bold">Twilio SMS</p>
+                {["account_sid", "auth_token", "phone_number"].map((k) => (
+                  <div key={k}>
+                    <label className="block text-xs text-[#8A8F98] mb-1 capitalize">{k.replace("_", " ")}</label>
+                    <input value={(instSettings.twilio || {})[k] || ""} onChange={(e) => setInstSettings((p) => ({ ...p, twilio: { ...(p.twilio || {}), [k]: e.target.value } }))}
+                      placeholder={k} className="w-full border border-[#E5E7EB] rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-[#002EB8]" />
+                  </div>
+                ))}
+              </div>
+              <div className="border border-[#E5E7EB] rounded-lg p-4 space-y-3">
+                <p className="text-xs font-mono uppercase tracking-widest text-[#8A8F98] font-bold">Razorpay</p>
+                {["key_id", "key_secret"].map((k) => (
+                  <div key={k}>
+                    <label className="block text-xs text-[#8A8F98] mb-1 capitalize">{k.replace("_", " ")}</label>
+                    <input value={(instSettings.razorpay || {})[k] || ""} onChange={(e) => setInstSettings((p) => ({ ...p, razorpay: { ...(p.razorpay || {}), [k]: e.target.value } }))}
+                      placeholder={k} className="w-full border border-[#E5E7EB] rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-[#002EB8]" />
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => setSettingsInst(null)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-lg text-sm hover:bg-[#F8F9FA]">Cancel</button>
+                <button onClick={handleSaveInstSettings} disabled={settingsSaving} data-testid="save-inst-settings-btn"
+                  className="flex-1 bg-[#7C3AED] text-white py-2 rounded-lg text-sm font-medium hover:bg-[#6D28D9] disabled:bg-[#8A8F98]">
+                  {settingsSaving ? "Saving..." : "Save Settings"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Push Global Settings Modal */}
+      {showGlobalPush && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl border border-[#E5E7EB] w-full max-w-lg shadow-xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Globe size={16} className="text-[#002EB8]" />
+                  <h3 className="font-cabinet font-bold text-base text-[#0A0A0A]">Push Global Settings</h3>
+                </div>
+                <p className="text-xs text-[#8A8F98] mt-0.5">Push these credentials to ALL institutes simultaneously</p>
+              </div>
+              <button onClick={() => setShowGlobalPush(false)}><X size={20} className="text-[#8A8F98]" /></button>
+            </div>
+            <form onSubmit={handlePushGlobal} className="p-6 space-y-5">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 text-xs text-yellow-800">
+                This will overwrite existing settings for all institutes. Leave fields blank to skip that service.
+              </div>
+              <div className="border border-[#E5E7EB] rounded-lg p-4 space-y-3">
+                <p className="text-xs font-mono uppercase tracking-widest text-[#8A8F98] font-bold">Twilio SMS</p>
+                {[["account_sid", "Account SID"], ["auth_token", "Auth Token"], ["phone_number", "Phone Number"]].map(([k, label]) => (
+                  <div key={k}>
+                    <label className="block text-xs text-[#8A8F98] mb-1">{label}</label>
+                    <input value={globalForm[k]} onChange={(e) => setGlobalForm((p) => ({ ...p, [k]: e.target.value }))}
+                      placeholder={label} className="w-full border border-[#E5E7EB] rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-[#002EB8]" />
+                  </div>
+                ))}
+              </div>
+              <div className="border border-[#E5E7EB] rounded-lg p-4 space-y-3">
+                <p className="text-xs font-mono uppercase tracking-widest text-[#8A8F98] font-bold">Razorpay</p>
+                {[["key_id", "Key ID"], ["key_secret", "Key Secret"]].map(([k, label]) => (
+                  <div key={k}>
+                    <label className="block text-xs text-[#8A8F98] mb-1">{label}</label>
+                    <input value={globalForm[k]} onChange={(e) => setGlobalForm((p) => ({ ...p, [k]: e.target.value }))}
+                      placeholder={label} className="w-full border border-[#E5E7EB] rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-[#002EB8]" />
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setShowGlobalPush(false)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-lg text-sm">Cancel</button>
+                <button type="submit" disabled={pushing} data-testid="push-global-submit"
+                  className="flex-1 bg-[#002EB8] text-white py-2 rounded-lg text-sm font-medium hover:bg-[#001A85] disabled:bg-[#8A8F98]">
+                  {pushing ? "Pushing..." : `Push to ${institutes.length} Institutes`}
                 </button>
               </div>
             </form>

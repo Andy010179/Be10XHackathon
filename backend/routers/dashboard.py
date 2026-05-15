@@ -1,12 +1,20 @@
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
+from io import BytesIO
 from database import db
-from helpers import ifilter, EMERGENT_LLM_KEY
+from helpers import ifilter, EMERGENT_LLM_KEY, get_institute_branding, serialize_doc
 from dependencies import require_admin_or_employer
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 import uuid
 import logging
+
+from reportlab.lib.pagesizes import A4, landscape as rl_landscape
+from reportlab.lib import colors as rl_colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm
 
 logger = logging.getLogger(__name__)
 
@@ -154,3 +162,102 @@ async def generate_weekly_summary(user: dict = Depends(require_admin_or_employer
             "summary": f"• Revenue collected this period: ₹{total_revenue:,.0f}\n• Outstanding balance: ₹{outstanding:,.0f}\n• {total_students} students enrolled, {new_enquiries} new enquiries this week\n• Conversion rate: {stats['conversion_rate']} — consider follow-up calls to improve.",
             "stats": stats
         }
+
+
+@dashboard_router.get("/revenue-pdf")
+async def download_revenue_pdf(user: dict = Depends(require_admin_or_employer)):
+    iid = user.get("institute_id")
+    inst_name, logo_b64, _ = await get_institute_branding(iid or "")
+    branches = await db.branches.find(ifilter(user)).to_list(100)
+    all_students = await db.students.find(ifilter(user), {"_id": 1, "name": 1, "branch_id": 1}).to_list(5000)
+    student_map = {str(s["_id"]): s for s in all_students}
+    student_ids = list(student_map.keys())
+
+    # Fetch parent info keyed by student_id
+    parents = await db.users.find(
+        {"role": "parent", "student_id": {"$in": student_ids}},
+        {"student_id": 1, "name": 1, "phone": 1}
+    ).to_list(5000)
+    parent_map = {p.get("student_id"): p for p in parents}
+
+    invoices = await db.invoices.find(ifilter(user)).to_list(10000)
+
+    # Build branch → invoice rows
+    branch_rows: dict = {}
+    for inv in invoices:
+        sid = inv.get("student_id", "")
+        student = student_map.get(sid, {})
+        bid = student.get("branch_id", "")
+        parent = parent_map.get(sid, {})
+        row = {
+            "student": student.get("name", "—"),
+            "parent": parent.get("name", "—"),
+            "parent_phone": parent.get("phone", "—"),
+            "course": inv.get("course_name", "—"),
+            "paid": inv.get("paid_amount", 0),
+            "balance": inv.get("balance", 0),
+            "status": inv.get("status", "pending"),
+        }
+        branch_rows.setdefault(bid, []).append(row)
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=rl_landscape(A4),
+        rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("T", parent=styles["Normal"], fontSize=18,
+        textColor=rl_colors.HexColor("#002EB8"), fontName="Helvetica-Bold", spaceAfter=2)
+    sub_style = ParagraphStyle("S", parent=styles["Normal"], fontSize=9,
+        textColor=rl_colors.HexColor("#8A8F98"), spaceAfter=12)
+    branch_style = ParagraphStyle("B", parent=styles["Normal"], fontSize=12,
+        textColor=rl_colors.HexColor("#0A0A0A"), fontName="Helvetica-Bold", spaceAfter=6, spaceBefore=12)
+
+    story = [
+        Paragraph(inst_name.upper(), title_style),
+        Paragraph(f"Revenue Report by Branch — Generated {datetime.now(timezone.utc).strftime('%d %b %Y')}", sub_style),
+        HRFlowable(width="100%", thickness=2, color=rl_colors.HexColor("#002EB8"), spaceAfter=12),
+    ]
+
+    grand_total = 0
+    for branch in branches:
+        bid = str(branch["_id"])
+        rows = branch_rows.get(bid, [])
+        story.append(Paragraph(f"{branch.get('name', 'Unknown Branch')}  —  {branch.get('location', '')}", branch_style))
+        if not rows:
+            story.append(Paragraph("No invoices for this branch.", sub_style))
+            continue
+        header = [["Student Name", "Parent Name", "Parent Mobile", "Course", "Paid (Rs.)", "Balance (Rs.)", "Status"]]
+        data_rows = [
+            [r["student"], r["parent"], r["parent_phone"], r["course"],
+             f"{r['paid']:,.0f}", f"{r['balance']:,.0f}", r["status"].upper()]
+            for r in rows
+        ]
+        branch_total = sum(r["paid"] for r in rows)
+        grand_total += branch_total
+        data_rows.append(["", "", "", f"Branch Total:", f"{branch_total:,.0f}", "", ""])
+        t = Table(header + data_rows, colWidths=[4.5*cm, 3.5*cm, 3*cm, 4*cm, 2.8*cm, 2.8*cm, 2.2*cm])
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), rl_colors.HexColor("#002EB8")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), rl_colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("ALIGN", (4, 0), (5, -1), "RIGHT"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -2), [rl_colors.white, rl_colors.HexColor("#F8F9FA")]),
+            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+            ("BACKGROUND", (0, -1), (-1, -1), rl_colors.HexColor("#F0F4FF")),
+            ("GRID", (0, 0), (-1, -1), 0.4, rl_colors.HexColor("#E5E7EB")),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        story.append(t)
+
+    story.append(Spacer(1, 16))
+    story.append(HRFlowable(width="100%", thickness=1, color=rl_colors.HexColor("#002EB8"), spaceAfter=8))
+    story.append(Paragraph(f"Grand Total Revenue: Rs. {grand_total:,.2f}", ParagraphStyle(
+        "GT", parent=styles["Normal"], fontSize=11, fontName="Helvetica-Bold",
+        textColor=rl_colors.HexColor("#002EB8"))))
+
+    doc.build(story)
+    buf.seek(0)
+    fname = f"Revenue_Report_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf"
+    return StreamingResponse(buf, media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={fname}"})

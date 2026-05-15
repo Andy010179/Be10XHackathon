@@ -5,7 +5,8 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   LayoutDashboard, Users, GraduationCap, DollarSign,
   BookOpen, Menu, X, LogOut, ChevronRight, Building2,
-  Users2, UserCog, BarChart2, Settings, MessageSquare, Shield, Camera, IdCard
+  Users2, UserCog, BarChart2, Settings, MessageSquare, Shield, Camera, IdCard,
+  Library, Banknote, ClipboardCheck
 } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -21,6 +22,9 @@ const navItems = [
   { path: "/attendance-reports",   label: "Attendance Reports",  icon: BarChart2,        roles: ["admin"] },
   { path: "/fee-queries",          label: "Fee Queries",         icon: MessageSquare,    roles: ["admin"] },
   { path: "/users",                label: "User Management",     icon: UserCog,          roles: ["admin"] },
+  { path: "/wages",                label: "Wages",               icon: Banknote,         roles: ["admin", "employer"] },
+  { path: "/staff-attendance",     label: "Staff Attendance",    icon: ClipboardCheck,   roles: ["admin", "employer"] },
+  { path: "/library",              label: "Library",             icon: Library,          roles: ["admin", "teacher", "student", "staff_member", "employer"] },
   { path: "/settings",             label: "Settings",            icon: Settings,         roles: ["admin"] },
   { path: "/portal",               label: "My Portal",           icon: LayoutDashboard,  roles: ["student"] },
   { path: "/staff-portal",         label: "Staff Portal",        icon: IdCard,           roles: ["admin", "teacher", "staff_member", "employer"] },

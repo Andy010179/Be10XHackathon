@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
-import { IdCard, Upload, Download, User, Building2, Phone, Hash, Camera, CheckCircle } from "lucide-react";
+import { IdCard, Upload, Download, User, Building2, Phone, Hash, Camera, CheckCircle, X, Clock, LogIn, LogOut, QrCode } from "lucide-react";
+import jsQR from "jsqr";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -23,9 +24,20 @@ export default function StaffPortal() {
   const [editPhone, setEditPhone]   = useState(false);
   const [phone, setPhone]           = useState("");
   const [savingPhone, setSavingPhone] = useState(false);
+  const [attendanceStatus, setAttendanceStatus] = useState(null);
+  const [attendanceLogs, setAttendanceLogs] = useState([]);
+  const [showCamera, setShowCamera] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState("");
   const fileRef                     = useRef(null);
+  const videoRef                    = useRef(null);
+  const canvasRef                   = useRef(null);
+  const streamRef                   = useRef(null);
+  const animRef                     = useRef(null);
 
-  useEffect(() => { fetchProfile(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchProfile(); fetchAttendance(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchProfile = async () => {
     setLoading(true);
@@ -37,6 +49,16 @@ export default function StaffPortal() {
       setPhone(data.phone || "");
     } catch { toast.error("Failed to load staff profile"); }
     finally { setLoading(false); }
+  };
+
+  const fetchAttendance = async () => {
+    try {
+      const res = await fetch(`${API}/api/staff-attendance/me`, { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setAttendanceStatus(data.current_status);
+      setAttendanceLogs(data.records || []);
+    } catch { /* silent */ }
   };
 
   const handlePhotoUpload = async (e) => {
@@ -90,6 +112,66 @@ export default function StaffPortal() {
       toast.success("Phone updated");
     } catch { toast.error("Failed to update phone"); }
     finally { setSavingPhone(false); }
+  };
+
+  // Camera / QR attendance helpers
+  const startCamera = useCallback(async () => {
+    setCameraError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      streamRef.current = stream;
+      if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
+      setCameraActive(true);
+      scanFrame();
+    } catch (e) { setCameraError("Camera access denied or unavailable: " + e.message); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const stopCamera = useCallback(() => {
+    if (animRef.current) cancelAnimationFrame(animRef.current);
+    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCameraActive(false);
+  }, []);
+
+  const scanFrame = useCallback(() => {
+    try {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (!video || !canvas || video.readyState !== 4 || video.videoWidth === 0) {
+        animRef.current = requestAnimationFrame(scanFrame);
+        return;
+      }
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
+      if (code?.data) {
+        stopCamera();
+        submitAttendanceScan(code.data);
+        return;
+      }
+    } catch { /* continue scanning */ }
+    animRef.current = requestAnimationFrame(scanFrame);
+  }, [stopCamera]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const submitAttendanceScan = async (qrData) => {
+    setScanning(true);
+    setScanResult(null);
+    try {
+      const res = await fetch(`${API}/api/staff-attendance/scan`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ qr_data: qrData }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Scan failed");
+      setScanResult({ success: true, message: data.message, action: data.action });
+      toast.success(data.message);
+      fetchAttendance();
+    } catch (err) { setScanResult({ success: false, message: err.message }); toast.error(err.message); }
+    finally { setScanning(false); }
   };
 
   if (loading) return <div className="p-8 text-center text-[#8A8F98]">Loading...</div>;
@@ -241,6 +323,89 @@ export default function StaffPortal() {
       <div className="mt-4 bg-[#F0F4FF] border border-[#C7D2FE] rounded-xl p-4 text-xs text-[#002EB8]">
         <strong>Tips:</strong> Upload a clear, front-facing photo before downloading the ID card for best results. Your personal mobile number will appear on the card alongside the institute's contact.
       </div>
+
+      {/* QR Attendance Section */}
+      <div className="mt-5">
+        <h2 className="font-cabinet font-bold text-lg tracking-tight text-[#0A0A0A] mb-3 flex items-center gap-2">
+          <QrCode size={18} className="text-[#002EB8]" /> Attendance Check-In
+        </h2>
+
+        {/* Current status */}
+        <div className={`flex items-center gap-3 p-4 rounded-xl border mb-4 ${attendanceStatus === "checkin" ? "bg-green-50 border-green-200" : "bg-[#F8F9FA] border-[#E5E7EB]"}`}>
+          <div className={`w-3 h-3 rounded-full ${attendanceStatus === "checkin" ? "bg-[#00C853] animate-pulse" : "bg-[#8A8F98]"}`} />
+          <div>
+            <p className="text-sm font-semibold text-[#0A0A0A]">
+              {attendanceStatus === "checkin" ? "Currently Checked In" : "Not Checked In Today"}
+            </p>
+            <p className="text-xs text-[#8A8F98]">
+              {attendanceStatus === "checkin" ? "Scan QR to check out" : "Scan the institute QR code to check in"}
+            </p>
+          </div>
+        </div>
+
+        {/* Camera scanner */}
+        <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 mb-4">
+          {!cameraActive ? (
+            <button onClick={startCamera} disabled={scanning} data-testid="staff-start-camera-btn"
+              className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-[#002EB8]/40 text-[#002EB8] rounded-lg text-sm font-medium hover:bg-[#002EB8]/5 transition-colors disabled:opacity-50">
+              <Camera size={16} /> {attendanceStatus === "checkin" ? "Scan to Check Out" : "Scan to Check In"}
+            </button>
+          ) : (
+            <div className="relative rounded-lg overflow-hidden border border-[#002EB8]">
+              <video ref={videoRef} muted playsInline className="w-full max-h-56 object-cover" />
+              <canvas ref={canvasRef} className="hidden" />
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-40 h-40 border-2 border-white rounded-lg opacity-70" />
+              </div>
+              <button onClick={stopCamera} data-testid="staff-stop-camera-btn"
+                className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1.5 hover:bg-black/80">
+                <X size={14} />
+              </button>
+              <p className="absolute bottom-2 left-0 right-0 text-center text-xs text-white bg-black/40 py-1">
+                Point at the institute QR code
+              </p>
+            </div>
+          )}
+          {cameraError && <p className="text-xs text-[#FF2B2B] mt-2">{cameraError}</p>}
+          {scanResult && (
+            <div className={`mt-3 p-3 rounded-lg border flex items-center gap-2 ${scanResult.success ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-800"}`}
+              data-testid="staff-scan-result">
+              {scanResult.success ? <CheckCircle size={16} className="text-[#00C853] shrink-0" /> : <X size={16} className="text-[#FF2B2B] shrink-0" />}
+              <p className="text-sm font-medium">{scanResult.message}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Recent logs */}
+        {attendanceLogs.length > 0 && (
+          <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#E5E7EB]">
+              <p className="text-xs font-mono uppercase tracking-widest text-[#8A8F98]">Recent Attendance (7 days)</p>
+            </div>
+            <div className="divide-y divide-[#E5E7EB]">
+              {attendanceLogs.slice(0, 10).map((log, i) => (
+                <div key={log.id || i} className="flex items-center justify-between px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    {log.action === "checkin"
+                      ? <LogIn size={14} className="text-[#00C853]" />
+                      : <LogOut size={14} className="text-[#FF2B2B]" />}
+                    <span className="text-sm text-[#0A0A0A] capitalize">{log.action === "checkin" ? "Check In" : "Check Out"}</span>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-[#8A8F98] font-mono">{log.date}</p>
+                    {log.duration_mins > 0 && (
+                      <p className="text-xs text-[#002EB8] flex items-center gap-1 justify-end">
+                        <Clock size={10} /> {Math.floor(log.duration_mins / 60)}h {log.duration_mins % 60}m
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+

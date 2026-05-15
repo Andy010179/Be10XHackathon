@@ -63,6 +63,54 @@ async def delete_institute(institute_id: str, user: dict = Depends(require_super
     return {"message": "Institute deleted"}
 
 
+@institutes_router.get("/{institute_id}/settings")
+async def get_institute_settings(institute_id: str, user: dict = Depends(require_super_admin)):
+    settings = await db.app_settings.find({"institute_id": institute_id}).to_list(20)
+    result = {}
+    for s in settings:
+        key = s.get("key")
+        if key and key != "logo":
+            result[key] = {k: v for k, v in s.items() if k not in ("_id", "key", "institute_id")}
+    return result
+
+
+@institutes_router.put("/{institute_id}/settings")
+async def update_institute_settings(institute_id: str, data: dict, user: dict = Depends(require_super_admin)):
+    """SuperAdmin can update any setting key for a specific institute."""
+    inst = await db.institutes.find_one({"_id": ObjectId(institute_id)})
+    if not inst:
+        raise HTTPException(status_code=404, detail="Institute not found")
+    for key, values in data.items():
+        if not isinstance(values, dict):
+            continue
+        await db.app_settings.update_one(
+            {"key": key, "institute_id": institute_id},
+            {"$set": {"key": key, "institute_id": institute_id, **values}},
+            upsert=True,
+        )
+    return {"message": "Settings updated", "keys_updated": list(data.keys())}
+
+
+@institutes_router.post("/push-global-settings")
+async def push_global_settings(data: dict, user: dict = Depends(require_super_admin)):
+    """Push settings from SuperAdmin to all institutes."""
+    institutes = await db.institutes.find({}).to_list(1000)
+    keys_pushed = list(data.keys())
+    count = 0
+    for inst in institutes:
+        iid = str(inst["_id"])
+        for key, values in data.items():
+            if not isinstance(values, dict):
+                continue
+            await db.app_settings.update_one(
+                {"key": key, "institute_id": iid},
+                {"$set": {"key": key, "institute_id": iid, **values}},
+                upsert=True,
+            )
+        count += 1
+    return {"message": f"Settings pushed to {count} institutes", "keys": keys_pushed, "institutes_updated": count}
+
+
 @institutes_router.post("/{institute_id}/reset-admin-password")
 async def reset_admin_password(institute_id: str, data: dict, user: dict = Depends(require_super_admin)):
     new_password = data.get("new_password", "").strip()

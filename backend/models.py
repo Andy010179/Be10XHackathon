@@ -231,10 +231,14 @@ class PublicEnquiryCreate(BaseModel):
     city: Optional[str] = None
     interest: str = ""
     institute_code: Optional[str] = None
-    student_name: str
-    email: str
-    phone: str
-    address: Optional[str] = None
-    city: Optional[str] = None
-    interest: str = ""
-    institute_code: Optional[str] = None
+
+
+class WageConfig(BaseModel):
+    teacher_per_lecture_rate: float = 0.0
+    staff_per_conversion_rate: float = 0.0
+
+
+class WageLogCreate(BaseModel):
+    user_id: str
+    notes: Optional[str] = None
+    override_amount: Optional[float] = None

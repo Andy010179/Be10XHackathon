@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Plus, X, Phone, Mail, GripVertical, Trash2, Pencil, MapPin, Upload, Download, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, X, Phone, Mail, GripVertical, Trash2, Pencil, MapPin, Upload, Download, Search, ChevronLeft, ChevronRight, Eye, EyeOff, User } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -179,6 +179,7 @@ export default function Enquiries() {
   const [csvResults, setCsvResults] = useState(null);
   const csvInputRef = useRef(null);
   const [crmSearch, setCrmSearch] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
 
   const handleSearchChange = (val) => {
     setCrmSearch(val);
@@ -253,12 +254,13 @@ export default function Enquiries() {
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchEnquiries(1); }, []);
+  useEffect(() => { fetchEnquiries(1); }, [showArchived]);
 
   const fetchEnquiries = async (p = page) => {
     try {
       const params = new URLSearchParams({ page: p, limit: PAGE_LIMIT });
       if (crmSearch) params.set("search", crmSearch);
+      if (showArchived) params.set("show_archived", "true");
       const res = await axios.get(`${API}/api/enquiries?${params}`, { withCredentials: true });
       // Support both paginated and legacy list response
       if (res.data && res.data.items) {
@@ -412,6 +414,14 @@ export default function Enquiries() {
           <button onClick={() => setShowForm(true)} data-testid="add-enquiry-button"
             className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] hover:bg-[#001A85] text-white text-sm rounded-md transition-colors font-medium">
             <Plus size={16} /> Add Enquiry
+          </button>
+          <button
+            onClick={() => { setShowArchived(!showArchived); setPage(1); }}
+            data-testid="toggle-archived-btn"
+            title={showArchived ? "Hide archived conversions" : "Show archived conversions (>24h)"}
+            className={`flex items-center gap-1.5 px-3 py-2 border text-sm rounded-md transition-colors ${showArchived ? "border-[#00C853] text-[#00C853] bg-green-50" : "border-[#E5E7EB] text-[#8A8F98] hover:border-[#00C853] hover:text-[#00C853]"}`}>
+            {showArchived ? <EyeOff size={14} /> : <Eye size={14} />}
+            {showArchived ? "Hide Archived" : "Archived"}
           </button>
         </div>
       </div>
@@ -582,3 +592,4 @@ export default function Enquiries() {
     </div>
   );
 }
+
