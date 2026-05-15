@@ -134,6 +134,7 @@ class FeeCalculate(BaseModel):
     course_name: str
     base_fee: float
     discount: float = 0
+    gst_rate: float = 18.0  # GST percentage, 1–30, default 18%
 
 
 class StudentCreate(BaseModel):
@@ -218,7 +219,18 @@ class TwilioSettings(BaseModel):
     phone_number: str
 
 
+class FeeQueryComment(BaseModel):
+    admin_comment: str
+
+
 class PublicEnquiryCreate(BaseModel):
+    student_name: str
+    email: str
+    phone: str
+    address: Optional[str] = None
+    city: Optional[str] = None
+    interest: str = ""
+    institute_code: Optional[str] = None
     student_name: str
     email: str
     phone: str

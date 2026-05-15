@@ -20,6 +20,7 @@ import FeeQueries from "./pages/FeeQueries";
 import AttendanceScan from "./pages/AttendanceScan";
 import PublicEnquiryForm from "./pages/PublicEnquiryForm";
 import SuperAdmin from "./pages/SuperAdmin";
+import StaffPortal from "./pages/StaffPortal";
 import ParentPortal from "./pages/ParentPortal";
 
 // Role constants — defined once to avoid inline array recreation on every render
@@ -28,6 +29,7 @@ const ADMIN_TEACHER_ROLES = ["admin", "teacher"];
 const ADMIN_ONLY_ROLES = ["admin"];
 const ADMIN_EMPLOYER_ROLES = ["admin", "employer"];
 const STUDENT_ADMIN_ROLES = ["student", "admin"];
+const STAFF_ROLES = ["admin", "teacher", "staff_member", "employer"];
 
 const ProtectedRoute = ({ children, roles }) => {
   const { user, loading } = useAuth();
@@ -174,6 +176,16 @@ function AppRoutes() {
             }
           />
         </Route>
+
+        {/* Staff Portal — outside the shared Layout wrapper */}
+        <Route
+          path="/staff-portal"
+          element={
+            <ProtectedRoute roles={STAFF_ROLES}>
+              <Layout><StaffPortal /></Layout>
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </>
   );

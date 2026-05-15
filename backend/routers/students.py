@@ -48,9 +48,37 @@ async def update_student(student_id: str, data: StudentUpdate, user: dict = Depe
     return serialize_doc(await db.students.find_one({"_id": ObjectId(student_id)}))
 
 
+async def _generate_student_uid(institute_id: str) -> str:
+    """Generate a unique enrollment number like DEFAULT-STU-2026-0001"""
+    from database import db as _db
+    year = datetime.now(timezone.utc).year
+    iid = institute_id or "GEN"
+    # Get or create a counter for this institute+year
+    counter_doc = await _db.counters.find_one_and_update(
+        {"_id": f"student_{iid}_{year}"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True,
+    )
+    seq = counter_doc.get("seq", 1)
+    # Get institute code
+    try:
+        inst = await _db.institutes.find_one({"_id": ObjectId(iid)}, {"code": 1})
+        code = (inst or {}).get("code", "STU")
+    except Exception:
+        code = "STU"
+    return f"{code}-STU-{year}-{seq:04d}"
+
+
 @students_router.patch("/{student_id}/status")
 async def update_student_status(student_id: str, data: StatusUpdate, user: dict = Depends(require_admin)):
-    await db.students.update_one(ifilter(user, {"_id": ObjectId(student_id)}), {"$set": {"status": data.status}})
+    update: dict = {"status": data.status}
+    if data.status == "active":
+        existing = await db.students.find_one({"_id": ObjectId(student_id)}, {"enrollment_no": 1, "institute_id": 1})
+        if existing and not existing.get("enrollment_no"):
+            iid = existing.get("institute_id") or user.get("institute_id") or ""
+            update["enrollment_no"] = await _generate_student_uid(iid)
+    await db.students.update_one(ifilter(user, {"_id": ObjectId(student_id)}), {"$set": update})
     return serialize_doc(await db.students.find_one({"_id": ObjectId(student_id)}))
 
 
@@ -60,10 +88,12 @@ async def onboard_student(student_id: str, data: OnboardStudent, user: dict = De
     if not all_batch_ids:
         raise HTTPException(status_code=400, detail="At least one batch must be selected")
     primary_batch = all_batch_ids[0]
-    await db.students.update_one(
-        {"_id": ObjectId(student_id)},
-        {"$set": {"status": "active", "batch_id": primary_batch, "batch_ids": all_batch_ids}}
-    )
+    update: dict = {"status": "active", "batch_id": primary_batch, "batch_ids": all_batch_ids}
+    existing = await db.students.find_one({"_id": ObjectId(student_id)}, {"enrollment_no": 1, "institute_id": 1})
+    if existing and not existing.get("enrollment_no"):
+        iid = existing.get("institute_id") or user.get("institute_id") or ""
+        update["enrollment_no"] = await _generate_student_uid(iid)
+    await db.students.update_one({"_id": ObjectId(student_id)}, {"$set": update})
     return serialize_doc(await db.students.find_one({"_id": ObjectId(student_id)}))
 
 

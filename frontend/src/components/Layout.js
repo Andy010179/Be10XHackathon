@@ -5,7 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   LayoutDashboard, Users, GraduationCap, DollarSign,
   BookOpen, Menu, X, LogOut, ChevronRight, Building2,
-  Users2, UserCog, BarChart2, Settings, MessageSquare, Shield, Camera
+  Users2, UserCog, BarChart2, Settings, MessageSquare, Shield, Camera, IdCard
 } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -23,6 +23,7 @@ const navItems = [
   { path: "/users",                label: "User Management",     icon: UserCog,          roles: ["admin"] },
   { path: "/settings",             label: "Settings",            icon: Settings,         roles: ["admin"] },
   { path: "/portal",               label: "My Portal",           icon: LayoutDashboard,  roles: ["student"] },
+  { path: "/staff-portal",         label: "Staff Portal",        icon: IdCard,           roles: ["admin", "teacher", "staff_member", "employer"] },
 ];
 
 const roleColors = {
@@ -32,6 +33,7 @@ const roleColors = {
   teacher: "bg-[#FFD600] text-[#0A0A0A]",
   student: "bg-[#8A8F98] text-white",
   parent: "bg-purple-600 text-white",
+  staff_member: "bg-[#FF8F00] text-white",
 };
 
 export default function Layout({ children }) {

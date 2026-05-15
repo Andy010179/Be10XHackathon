@@ -29,6 +29,7 @@ from routers.admin import admin_router
 from routers.institutes import institutes_router
 from routers.parent import parent_router
 from routers.public import public_router
+from routers.staff import staff_router
 
 logging.basicConfig(level=logging.INFO)
 
@@ -70,6 +71,7 @@ api_router.include_router(admin_router)
 api_router.include_router(institutes_router)
 api_router.include_router(parent_router)
 api_router.include_router(public_router)
+api_router.include_router(staff_router)
 
 app.include_router(api_router)
 

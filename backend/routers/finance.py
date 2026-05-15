@@ -29,13 +29,13 @@ async def list_invoices(user: dict = Depends(get_current_user)):
 
 @finance_router.post("/calculate")
 async def calculate_fee(data: FeeCalculate, user: dict = Depends(require_admin)):
-    GST_RATE = 0.18
-    gst_amount = round(data.base_fee * GST_RATE, 2)
+    gst_rate = max(1.0, min(30.0, data.gst_rate)) / 100.0
+    gst_amount = round(data.base_fee * gst_rate, 2)
     total = round((data.base_fee + gst_amount) - data.discount, 2)
     doc = {
         "student_id": data.student_id, "student_name": data.student_name,
         "course_id": data.course_id, "course_name": data.course_name,
-        "base_fee": data.base_fee, "gst_amount": gst_amount,
+        "base_fee": data.base_fee, "gst_rate": data.gst_rate, "gst_amount": gst_amount,
         "discount": data.discount, "total": total,
         "paid_amount": 0, "balance": total,
         "status": "pending",

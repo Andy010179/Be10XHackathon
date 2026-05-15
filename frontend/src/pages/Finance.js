@@ -62,7 +62,7 @@ export default function Finance() {
   const [payHistoryLoading, setPayHistoryLoading] = useState({});
 
   const [form, setForm] = useState({
-    student_id: "", student_name: "", course_id: "", course_name: "", base_fee: "", discount: "0"
+    student_id: "", student_name: "", course_id: "", course_name: "", base_fee: "", discount: "0", gst_rate: "18"
   });
 
   // Fetch all data on mount — deps intentionally empty (module-level constants API/axios don't need re-run)
@@ -98,18 +98,19 @@ export default function Finance() {
     setForm((f) => ({ ...f, course_id: courseId, course_name: course?.name || "", base_fee: String(course?.base_fee || "") }));
   };
 
-  const gstAmount   = Math.round((parseFloat(form.base_fee) || 0) * 0.18 * 100) / 100;
+  const gstRate    = parseFloat(form.gst_rate) || 18;
+  const gstAmount   = Math.round((parseFloat(form.base_fee) || 0) * (gstRate / 100) * 100) / 100;
   const totalAmount = Math.round(((parseFloat(form.base_fee) || 0) + gstAmount - (parseFloat(form.discount) || 0)) * 100) / 100;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { ...form, base_fee: parseFloat(form.base_fee), discount: parseFloat(form.discount) || 0 };
+      const payload = { ...form, base_fee: parseFloat(form.base_fee), discount: parseFloat(form.discount) || 0, gst_rate: parseFloat(form.gst_rate) || 18 };
       const res = await axios.post(`${API}/api/finance/calculate`, payload, { withCredentials: true });
       setInvoices([res.data, ...invoices]);
       setShowForm(false);
-      setForm({ student_id: "", student_name: "", course_id: "", course_name: "", base_fee: "", discount: "0" });
+      setForm({ student_id: "", student_name: "", course_id: "", course_name: "", base_fee: "", discount: "0", gst_rate: "18" });
       toast.success("Invoice generated successfully!");
     } catch { toast.error("Failed to generate invoice"); }
     finally { setSaving(false); }
@@ -268,7 +269,7 @@ export default function Finance() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-cabinet font-black text-3xl tracking-tighter text-[#0A0A0A]">Finance</h1>
-          <p className="text-sm text-[#8A8F98] mt-0.5">Fee management &amp; invoicing (18% GST applied)</p>
+          <p className="text-sm text-[#8A8F98] mt-0.5">Fee management &amp; invoicing (GST-inclusive)</p>
         </div>
         <button onClick={() => setShowForm(true)} data-testid="generate-invoice-button"
           className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] text-white text-sm rounded-md hover:bg-[#001A85] transition-colors font-medium">
@@ -316,7 +317,7 @@ export default function Finance() {
             <div className="absolute right-0 top-full mt-1 bg-white border border-[#E5E7EB] rounded-lg shadow-lg p-3 z-20 min-w-[150px]">
               {[
                 { key: "base_fee", label: "Base Fee" },
-                { key: "gst",      label: "GST (18%)" },
+                { key: "gst",      label: "GST" },
                 { key: "discount", label: "Discount" },
               ].map(({ key, label }) => (
                 <label key={key} className="flex items-center gap-2 py-1.5 cursor-pointer text-sm text-[#0A0A0A] hover:text-[#002EB8]">
@@ -367,16 +368,26 @@ export default function Finance() {
                     className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
                 </div>
                 <div>
-                  <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Discount (₹)</label>
-                  <input type="number" min="0" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })}
-                    data-testid="invoice-discount-input"
-                    className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
+                  <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">GST Rate (%)</label>
+                  <select value={form.gst_rate} onChange={(e) => setForm({ ...form, gst_rate: e.target.value })}
+                    data-testid="gst-rate-select"
+                    className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8] bg-white">
+                    {Array.from({ length: 30 }, (_, i) => i + 1).map((r) => (
+                      <option key={r} value={r}>{r}%{r === 18 ? " (Default)" : ""}</option>
+                    ))}
+                  </select>
                 </div>
+              </div>
+              <div>
+                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Discount (₹)</label>
+                <input type="number" min="0" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })}
+                  data-testid="invoice-discount-input"
+                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
               </div>
               {form.base_fee && (
                 <div className="bg-[#F8F9FA] border border-[#E5E7EB] rounded-md p-3 text-sm space-y-1" data-testid="invoice-breakdown">
                   <div className="flex justify-between text-[#8A8F98]"><span>Base Fee</span><span>₹{parseFloat(form.base_fee||0).toLocaleString()}</span></div>
-                  <div className="flex justify-between text-[#8A8F98]"><span>GST (18%)</span><span>₹{gstAmount.toLocaleString()}</span></div>
+                  <div className="flex justify-between text-[#8A8F98]"><span>GST ({gstRate}%)</span><span>₹{gstAmount.toLocaleString()}</span></div>
                   <div className="flex justify-between text-[#8A8F98]"><span>Discount</span><span>-₹{parseFloat(form.discount||0).toLocaleString()}</span></div>
                   <div className="flex justify-between font-bold text-[#0A0A0A] border-t border-[#E5E7EB] pt-1 mt-1"><span>Total</span><span>₹{totalAmount.toLocaleString()}</span></div>
                 </div>

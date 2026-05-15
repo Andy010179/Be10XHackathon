@@ -14,9 +14,36 @@ admin_router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 @admin_router.get("/fee-queries")
-async def get_all_fee_queries(user: dict = Depends(require_admin)):
-    queries = await db.fee_queries.find().sort("created_at", -1).to_list(1000)
-    return [serialize_doc(q) for q in queries]
+async def get_all_fee_queries(
+    user: dict = Depends(require_admin),
+    page: int = 1, limit: int = 20,
+    status: str = None,
+):
+    import math
+    q = {}
+    if status and status != "all":
+        q["status"] = status
+    total = await db.fee_queries.count_documents(q)
+    skip = (max(1, page) - 1) * limit
+    queries = await db.fee_queries.find(q).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    return {
+        "items": [serialize_doc(q) for q in queries],
+        "total": total, "page": page,
+        "pages": max(1, math.ceil(total / limit))
+    }
+
+
+@admin_router.patch("/fee-queries/{query_id}/comment")
+async def add_fee_query_comment(query_id: str, data: dict, user: dict = Depends(require_admin)):
+    comment = (data.get("admin_comment") or "").strip()
+    if not comment:
+        raise HTTPException(status_code=400, detail="Comment cannot be empty")
+    await db.fee_queries.update_one(
+        {"_id": ObjectId(query_id)},
+        {"$set": {"admin_comment": comment, "commented_at": datetime.now(timezone.utc),
+                  "commented_by": user.get("name", "Admin")}}
+    )
+    return serialize_doc(await db.fee_queries.find_one({"_id": ObjectId(query_id)}))
 
 
 @admin_router.patch("/fee-queries/{query_id}/resolve")
