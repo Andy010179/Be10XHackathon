@@ -1,137 +1,98 @@
 # EduTech-LMS PRD
 
 ## Original Problem Statement
-Create a full-stack Learning Management System (LMS) called "EduTech-LMS" with:
+Build a multi-tenant Learning Management System (EduTech-LMS) with advanced features:
 - Multi-tenant institute isolation
-- Role-based dashboards (Super Admin, Admin, Teacher, Student, Parent, Employer)
-- JWT Auth with Institute Code scoping
-- CRM with Kanban and pagination
-- Finance module with auto-generated PDFs
-- Student Portal with digital ID cards and QR scanner for attendance
-- Parent Portal with invoice downloads
-- White-label branding (custom logos on PDFs/UI)
-- Twilio SMS alerts
-- Gemini 3 Flash AI summaries
-- Resend email functionality
-- Public Enquiry Web Forms
-- Admin Data Management (export/restore XLSX)
+- Parent login portal, Public Enquiry Web Forms
+- CRM Pagination, Admin Data Management
+- Finance Automated PDFs, Portal QR Code Attendance
+- Twilio SMS alerts, Gemini 3 Flash AI summaries, Resend email
+- White-label branding with custom logos
+- Parent invoice downloads, Student digital ID cards, Student QR scanner
+
+## Phases & Status
+
+### Phase 1 — COMPLETE ✅
+- Staff ID Card generation (PDF) + Staff Portal photo upload
+- GST Dropdown (1-30%) in Finance Invoices  
+- Fee Query Admin comments, "Mark Resolved", pagination
+- Auto-generation of Student Unique IDs
+- Disabled Parent Portal Invoice/Receipt downloads
+
+### Phase 2 — COMPLETE ✅ (May 2026)
+- **CRM Pipeline**: Hide converted leads after 24h with "Show Archived" toggle + "Converted by" attribution badge
+- **Revenue PDF Export**: `GET /api/dashboard/revenue-pdf` with branch/student/parent/amount details
+- **SuperAdmin Settings Sync**: Per-institute settings view/edit + Push Global Settings (Twilio/Razorpay) to all institutes
+
+### Phase 3 — COMPLETE ✅ (May 2026)
+- **Wage System** (`/wages`): Admin configures teacher-per-lecture & staff-per-conversion rates; auto-creates wage logs on CRM conversion; manual lecture log; daily/weekly/monthly summary
+- **Staff QR Attendance** (`/staff-attendance`): Admin sees daily rotating QR code; staff scan via camera in Staff Portal to check in/out; attendance dashboard with date picker
+- **Library Repository** (`/library`): 3 tabs (Books/Videos/Links); PDF file upload; YouTube/URL adding; search; download; visible to all roles
 
 ## Architecture
 ```
 /app/
 ├── backend/
-│   ├── server.py              # Thin FastAPI entry (~165 lines)
-│   ├── database.py            # MongoDB client
-│   ├── models.py              # All Pydantic models
-│   ├── helpers.py             # Shared helpers, constants, SMS, email
-│   ├── dependencies.py        # Auth dependencies (get_current_user, require_admin, etc.)
-│   ├── requirements.txt
-│   └── routers/               # 19 router files
-│       ├── auth.py            # /api/auth/*
-│       ├── users.py           # /api/users/*
-│       ├── branches.py        # /api/branches/*
-│       ├── courses.py         # /api/courses/*
-│       ├── enquiries.py       # /api/enquiries/* (paginated)
-│       ├── academic.py        # /api/academic/* (schedules, batches)
-│       ├── finance.py         # /api/finance/* (invoices, PDFs)
-│       ├── dashboard.py       # /api/dashboard/* (stats, AI summary)
-│       ├── students.py        # /api/students/*
-│       ├── teacher.py         # /api/teacher/* (sessions, attendance, QR)
-│       ├── attendance.py      # /api/attendance/qr-checkin
-│       ├── payments.py        # /api/payments/* (Razorpay)
-│       ├── portal.py          # /api/portal/* (student portal, ID card)
-│       ├── webhooks.py        # /api/webhooks/* (WhatsApp)
-│       ├── settings.py        # /api/settings/* (Razorpay, Twilio, Logo)
-│       ├── admin.py           # /api/admin/* (fee queries, backup, parents)
-│       ├── institutes.py      # /api/institutes/* (super admin)
-│       ├── parent.py          # /api/parent/* (parent portal)
-│       └── public.py          # /api/public/enquiry (web form)
+│   ├── server.py              # Thin entry point
+│   ├── models.py              # Pydantic models (incl. WageConfig, WageLogCreate)
+│   ├── database.py            # MongoDB connection
+│   ├── dependencies.py        # Auth / Role dependencies
+│   ├── helpers.py             # PDF logic, utility functions
+│   └── routers/
+│       ├── auth.py, users.py, finance.py, staff.py, enquiries.py, dashboard.py
+│       ├── institutes.py      # + settings sync endpoints
+│       ├── wages.py           # NEW: Wage system
+│       ├── staff_attendance.py # NEW: QR attendance
+│       └── library.py         # NEW: Library repository
 ├── frontend/
-│   ├── src/
-│       ├── App.js
-│       ├── components/
-│       │   ├── Layout.js
-│       │   ├── portal/
-│       │   │   ├── PortalIDCard.jsx
-│       │   │   └── PortalQRCheckin.jsx
-│       │   └── dashboard/
-│       │       └── BranchDetailPanel.jsx
-│       ├── contexts/AuthContext.js
-│       └── pages/             # StudentPortal.js, Finance.js, UserManagement.js, etc.
-├── memory/
-│   ├── PRD.md
-│   ├── test_credentials.md
-│   └── CHANGELOG.md
+│   └── src/
+│       ├── pages/
+│       │   ├── Dashboard.js   # + Revenue PDF export
+│       │   ├── Enquiries.js   # + show_archived toggle + converted_by badge
+│       │   ├── SuperAdmin.js  # + settings sync modals
+│       │   ├── StaffPortal.js # + QR check-in section
+│       │   ├── Library.js     # NEW
+│       │   ├── StaffAttendance.js # NEW
+│       │   └── Wages.js       # NEW
+│       └── components/
+│           └── Layout.js      # + Wages, Staff Attendance, Library nav items
 ```
 
-## Key DB Schema
-- institutes: {name, code, phone, address, is_active, logo_id}
-- users: {name, email, password_hash, role, institute_id, student_id, branch_id}
-- students: {name, email, phone, branch_id, course_ids, status, syllabus_percentage, batch_id, institute_id}
-- enquiries: {student_name, email, phone, stage, source, notes, institute_id}
-- invoices: {student_id, institute_id, base_fee, gst_amount, discount, total, paid_amount, balance, status}
-- attendance: {session_id, student_id, status, method, created_at}
-- app_settings: {key: "twilio"|"razorpay"|"logo", institute_id, ...credentials}
+## Key DB Collections
+- `institutes`, `users`, `enquiries`, `invoices`, `students`, `branches`
+- `wage_configs` — per-institute wage rate config
+- `wage_logs` — individual wage entries (type: lecture|conversion)
+- `staff_attendance` — QR check-in/out records
+- `library` — library items (book/video/url)
 
-## 3rd Party Integrations
-- Twilio SMS (requires user credentials via Settings UI)
-- Razorpay payments (requires user credentials via Settings UI)
-- Resend email (MOCKED - requires RESEND_API_KEY env var)
-- Gemini 3 Flash AI (upcoming - uses Emergent LLM Key)
-- jsQR (QR camera scanner in student portal)
+## API Routes
+- `GET /api/wages/config` — wage config for institute
+- `PUT /api/wages/config` — update rates
+- `GET /api/wages/logs` — list logs with period filter
+- `GET /api/wages/summary` — aggregate summary
+- `POST /api/wages/logs/lecture` — manual lecture log
+- `GET /api/staff-attendance/institute-qr` — daily QR token
+- `POST /api/staff-attendance/scan` — check in/out
+- `GET /api/staff-attendance/me` — my attendance (staff)
+- `GET /api/staff-attendance/dashboard` — admin view
+- `GET /api/library` — list items
+- `POST /api/library` — add item
+- `DELETE /api/library/{id}` — delete
+- `GET /api/library/{id}/download` — stream PDF
+- `GET /api/institutes/{id}/settings` — super admin get settings
+- `PUT /api/institutes/{id}/settings` — super admin update settings
+- `POST /api/institutes/push-global-settings` — push to all institutes
+- `GET /api/dashboard/revenue-pdf` — Revenue by Branch PDF
 
-## What's Been Implemented (as of 2026-04-18)
-- [x] Multi-tenant institute isolation
-- [x] JWT Auth with Institute Code scoping
-- [x] Role-based dashboards (Super Admin, Admin, Teacher, Student, Parent)
-- [x] CRM Kanban with pagination and search
-- [x] Finance module: invoice generation, payments, auto-PDFs (invoice + receipt)
-- [x] Student Portal: personal info, invoices, attendance, certificates, fee query
-- [x] Digital ID card PDF generation in Student Portal
-- [x] QR Attendance Camera Scanner (jsQR) in Student Portal
-- [x] Parent Portal: dashboard, attendance, fees, academic view
-- [x] Parent invoice/receipt PDF downloads
-- [x] White-label branding: custom logo upload, logos on PDFs and UI
-- [x] Twilio SMS integration (Settings UI + mark_attendance trigger)
-- [x] Dashboard multi-tenancy isolation (branch filter)
-- [x] Institute name in top header
-- [x] Admin data management: XLSX backup + restore
-- [x] Public Enquiry web form
-- [x] WhatsApp webhook for lead capture
-- [x] Refactoring Phase 1: Fixed hook deps, undefined vars, inline props
-- [x] Extracted components: PortalIDCard, PortalQRCheckin, BranchDetailPanel
-- [x] **Backend refactoring: server.py split into 19 router files (routers/ directory)**
-- [x] **QR Scanner crash fixed: scanFrame try-catch + videoWidth > 0 guard**
+## Backlog / Upcoming Tasks
+### P1
+- Gemini 3 Flash AI weekly performance summary for Dashboard (uses Emergent LLM Key)
+- Frontend modal extraction refactoring: UserManagement.js, Finance.js, Academic.js
 
-- [x] **Phase 1 new features (2026-05-15)**:
-  - Staff Portal (/staff-portal): photo upload, PDF ID card generator with Institute/Branch/Role/StaffNumber
-  - Staff Unique Numbers auto-generated (ADM-2026-NNNN, TCH-2026-NNNN, STF-2026-NNNN)
-  - Student Unique ID auto-generated on status→"Active" (e.g. DEFAULT-STU-2026-0001)
-  - GST dropdown (1–30%, default 18%) on invoice creation; PDF label reflects actual rate
-  - Fee Queries: Admin Comment field (inline response), Mark Resolved button, 20/page pagination latest-first
-  - Parent Portal: Invoice/Receipt download buttons removed; replaced with "Contact Admin for PDF"
-  - Nav item "Staff Portal" visible to admin/teacher/staff_member/employer roles
+### P2
+- Transition Resend email from MOCK to production (requires user API key)
+- Twilio SMS: user must provide API credentials in Settings
 
-### P1 (High Priority)
-- [ ] Gemini 3 Flash AI weekly performance summary on Dashboard
-  - Use Emergent LLM Key (EMERGENT_LLM_KEY env var)
-  - Endpoint: POST /api/dashboard/weekly-summary (already implemented!)
-  - Add "Weekly Summary" button to Dashboard page
-  - Display AI-generated summary in a modal/card
-
-### P2 (Medium Priority)
-- [ ] Resend email service - activate production mode
-  - Requires user to set RESEND_API_KEY in backend .env
-  - Update SENDER_EMAIL to verified domain sender
-- [ ] Frontend modal extraction: split large pages into smaller components
-  - UserManagement.js (665 lines): extract CreateUserModal, EditUserModal, ParentAccountForm
-  - Finance.js (565 lines): extract CreateInvoiceModal, PaymentModal
-  - Academic.js (575 lines): extract CreateSessionModal, CreateBatchModal
-
-### P3 (Future/Backlog)
-- [ ] Student self-registration flow
-- [ ] Bulk student import via XLSX (admin)
-- [ ] Advanced reporting (PDF attendance reports)
-- [ ] Two-factor authentication
-- [ ] Email templates customization
-- [ ] WhatsApp messaging (not just webhook receipt)
+## Known Issues
+- Resend Email is MOCKED (no real API key configured)
+- Twilio SMS: credentials must be entered by admin in Settings page
