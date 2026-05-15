@@ -103,7 +103,14 @@ Create a full-stack Learning Management System (LMS) called "EduTech-LMS" with:
 - [x] **Backend refactoring: server.py split into 19 router files (routers/ directory)**
 - [x] **QR Scanner crash fixed: scanFrame try-catch + videoWidth > 0 guard**
 
-## Prioritized Backlog
+- [x] **Phase 1 new features (2026-05-15)**:
+  - Staff Portal (/staff-portal): photo upload, PDF ID card generator with Institute/Branch/Role/StaffNumber
+  - Staff Unique Numbers auto-generated (ADM-2026-NNNN, TCH-2026-NNNN, STF-2026-NNNN)
+  - Student Unique ID auto-generated on status→"Active" (e.g. DEFAULT-STU-2026-0001)
+  - GST dropdown (1–30%, default 18%) on invoice creation; PDF label reflects actual rate
+  - Fee Queries: Admin Comment field (inline response), Mark Resolved button, 20/page pagination latest-first
+  - Parent Portal: Invoice/Receipt download buttons removed; replaced with "Contact Admin for PDF"
+  - Nav item "Staff Portal" visible to admin/teacher/staff_member/employer roles
 
 ### P1 (High Priority)
 - [ ] Gemini 3 Flash AI weekly performance summary on Dashboard

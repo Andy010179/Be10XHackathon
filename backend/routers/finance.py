@@ -130,7 +130,7 @@ async def download_invoice_pdf(invoice_id: str, user: dict = Depends(get_current
     fee_data = [
         ["Description", "Amount (Rs.)"],
         ["Base Course Fee", f"Rs. {invoice.get('base_fee', 0):,.2f}"],
-        ["GST (18%)", f"Rs. {invoice.get('gst_amount', 0):,.2f}"],
+        [f"GST ({invoice.get('gst_rate', 18):.4g}%)", f"Rs. {invoice.get('gst_amount', 0):,.2f}"],
         ["Discount Applied", f"- Rs. {invoice.get('discount', 0):,.2f}"],
         ["Total Payable", f"Rs. {invoice.get('total', 0):,.2f}"],
         ["Amount Paid", f"Rs. {invoice.get('paid_amount', 0):,.2f}"],
