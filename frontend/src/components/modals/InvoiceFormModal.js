@@ -30,7 +30,7 @@ export function InvoiceFormModal({
                 data-testid="invoice-course-select"
                 className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
                 <option value="">Select Course</option>
-                {courses.map((c) => <option key={c.id} value={c.id}>{c.name} (₹{c.base_fee?.toLocaleString()})</option>)}
+                {courses.map((c) => <option key={c.id} value={c.id}>{`${c.name} (\u20B9${c.base_fee?.toLocaleString() || ""})`}</option>)}
               </select>
             </div>
           </div>

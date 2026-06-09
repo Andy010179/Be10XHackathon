@@ -86,12 +86,18 @@ Build a multi-tenant Learning Management System (EduTech-LMS) with advanced feat
 
 ## Backlog / Upcoming Tasks
 ### P1
-- Gemini 3 Flash AI weekly performance summary for Dashboard (uses Emergent LLM Key)
-- Frontend modal extraction refactoring: UserManagement.js, Finance.js, Academic.js
+- Gemini 3 Flash AI weekly performance summary for Dashboard (uses Emergent LLM Key) — VERIFIED REAL, not mocked
 
 ### P2
 - Transition Resend email from MOCK to production (requires user API key)
 - Twilio SMS: user must provide API credentials in Settings
+
+## Completed Refactoring (Feb 2026)
+- **Modal Extraction**: Extracted 9 inline modals from UserManagement.js, Finance.js, Academic.js into `/frontend/src/components/modals/`:
+  - CreateUserModal.js, EditUserModal.js, CreateParentModal.js
+  - InvoiceFormModal.js, MockPaymentModal.js, RecordPaymentModal.js
+  - EditBranchModal.js, EditBatchModal.js, EditScheduleModal.js
+- Result: UserManagement 664→480 lines, Finance 578→501 lines, Academic 575→462 lines
 
 ## Known Issues
 - Resend Email is MOCKED (no real API key configured)

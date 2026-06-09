@@ -33,7 +33,7 @@ export function CreateParentModal({ onClose, parentForm, setParentForm, handleCr
               className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[#002EB8] bg-white">
               <option value="">— Select Student —</option>
               {students.map((s) => (
-                <option key={s.id} value={s.id}>{s.name} ({s.email})</option>
+                <option key={s.id} value={s.id}>{`${s.name} (${s.email})`}</option>
               ))}
             </select>
           </div>
