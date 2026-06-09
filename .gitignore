@@ -84,7 +84,6 @@ frontend/node_modules/.cache/default-development/3.pack
 frontend/node_modules/.cache/default-development/6.pack
 frontend/node_modules/.cache/default-development/8.pack
 frontend/node_modules/.cache/default-development/1.pack
--e 
 frontend/node_modules/.cache/default-development/7.pack
 frontend/node_modules/.cache/default-development/14.pack
 frontend/node_modules/.cache/default-development/11.pack
@@ -97,18 +96,15 @@ frontend/node_modules/.cache/default-development/23.pack
 frontend/node_modules/.cache/default-development/23.pack
 frontend/node_modules/.cache/default-development/25.pack
 frontend/node_modules/.cache/default-development/22.pack
--e 
 credentials.json
 *.pem
 *.key
 .credentials
--e 
 credentials.json
 *.pem
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/26.pack
--e 
 credentials.json
 *.pem
 *.key
