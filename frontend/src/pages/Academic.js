@@ -2,6 +2,9 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { toast } from "sonner";
 import { Plus, Trash2, X, AlertCircle, Calendar, Pencil } from "lucide-react";
+import { EditBranchModal } from "../components/modals/EditBranchModal";
+import { EditBatchModal } from "../components/modals/EditBatchModal";
+import { EditScheduleModal } from "../components/modals/EditScheduleModal";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 const TABS = ["Branches", "Batches", "Schedule"];
@@ -207,30 +210,13 @@ export default function Academic() {
 
           {/* Edit Branch Modal */}
           {editBranch && (
-            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-lg border border-[#E5E7EB] w-full max-w-sm shadow-xl">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E7EB]">
-                  <h3 className="font-cabinet font-bold">Edit Branch</h3>
-                  <button onClick={() => setEditBranch(null)}><X size={18} className="text-[#8A8F98]" /></button>
-                </div>
-                <form onSubmit={saveBranchEdit} className="p-5 space-y-3" data-testid="edit-branch-form">
-                  <div>
-                    <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">Name</label>
-                    <input required value={editBranchForm.name} onChange={(e) => setEditBranchForm({ ...editBranchForm, name: e.target.value })}
-                      className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">Location</label>
-                    <input required value={editBranchForm.location} onChange={(e) => setEditBranchForm({ ...editBranchForm, location: e.target.value })}
-                      className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-                  </div>
-                  <div className="flex gap-2 pt-1">
-                    <button type="button" onClick={() => setEditBranch(null)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm">Cancel</button>
-                    <button type="submit" disabled={saving} className="flex-1 bg-[#002EB8] text-white py-2 rounded-md text-sm">Save</button>
-                  </div>
-                </form>
-              </div>
-            </div>
+            <EditBranchModal
+              onClose={() => setEditBranch(null)}
+              form={editBranchForm}
+              setForm={setEditBranchForm}
+              onSubmit={saveBranchEdit}
+              saving={saving}
+            />
           )}
 
           <div className="border border-[#E5E7EB] divide-y divide-[#E5E7EB] rounded-lg overflow-hidden">
@@ -327,72 +313,16 @@ export default function Academic() {
 
           {/* Edit Batch Modal */}
           {editBatch && (
-            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-lg border border-[#E5E7EB] w-full max-w-lg shadow-xl">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E7EB]">
-                  <h3 className="font-cabinet font-bold">Edit Batch</h3>
-                  <button onClick={() => setEditBatch(null)}><X size={18} className="text-[#8A8F98]" /></button>
-                </div>
-                <form onSubmit={saveBatchEdit} data-testid="edit-batch-form" className="p-5 space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">Batch Name</label>
-                      <input value={editBatchForm.name} onChange={(e) => setEditBatchForm({ ...editBatchForm, name: e.target.value })}
-                        className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">Branch</label>
-                      <select value={editBatchForm.branch_id} onChange={(e) => setEditBatchForm({ ...editBatchForm, branch_id: e.target.value })}
-                        className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
-                        <option value="">Select Branch</option>
-                        {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">Course</label>
-                      <select value={editBatchForm.course_id} onChange={(e) => setEditBatchForm({ ...editBatchForm, course_id: e.target.value })}
-                        className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
-                        <option value="">Select Course</option>
-                        {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">Teacher</label>
-                      <select value={editBatchForm.teacher_id} onChange={(e) => setEditBatchForm({ ...editBatchForm, teacher_id: e.target.value })}
-                        className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
-                        <option value="">Select Teacher</option>
-                        {teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">Start Time</label>
-                      <input type="time" value={editBatchForm.start_time} onChange={(e) => setEditBatchForm({ ...editBatchForm, start_time: e.target.value })}
-                        className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">End Time</label>
-                      <input type="time" value={editBatchForm.end_time} onChange={(e) => setEditBatchForm({ ...editBatchForm, end_time: e.target.value })}
-                        className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">Days</label>
-                    <div className="flex gap-2 flex-wrap">
-                      {DAYS.map((day) => (
-                        <button key={day} type="button" onClick={() => toggleDay(editBatchForm, setEditBatchForm, day)}
-                          className={`px-3 py-1 text-xs rounded-md border transition-colors ${editBatchForm.days.includes(day) ? "bg-[#002EB8] text-white border-[#002EB8]" : "border-[#E5E7EB] text-[#8A8F98] hover:border-[#002EB8]"}`}>
-                          {day}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex gap-2 pt-1">
-                    <button type="button" onClick={() => setEditBatch(null)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm">Cancel</button>
-                    <button type="submit" disabled={saving} className="flex-1 bg-[#002EB8] text-white py-2 rounded-md text-sm">Save Changes</button>
-                  </div>
-                </form>
-              </div>
-            </div>
+            <EditBatchModal
+              onClose={() => setEditBatch(null)}
+              form={editBatchForm}
+              setForm={setEditBatchForm}
+              onSubmit={saveBatchEdit}
+              saving={saving}
+              branches={branches}
+              courses={courses}
+              teachers={teachers}
+            />
           )}
 
           <div className="border border-[#E5E7EB] divide-y divide-[#E5E7EB] rounded-lg overflow-hidden">
@@ -495,58 +425,15 @@ export default function Academic() {
 
           {/* Edit Schedule Modal */}
           {editSched && (
-            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-lg border border-[#E5E7EB] w-full max-w-lg shadow-xl">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E7EB]">
-                  <h3 className="font-cabinet font-bold">Edit Session</h3>
-                  <button onClick={() => setEditSched(null)}><X size={18} className="text-[#8A8F98]" /></button>
-                </div>
-                <form onSubmit={saveSchedEdit} data-testid="edit-schedule-form" className="p-5 space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">Session Title</label>
-                      <input value={editSchedForm.title} onChange={(e) => setEditSchedForm({ ...editSchedForm, title: e.target.value })}
-                        className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">Course</label>
-                      <select value={editSchedForm.course_id} onChange={(e) => setEditSchedForm({ ...editSchedForm, course_id: e.target.value })}
-                        className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
-                        <option value="">Select Course</option>
-                        {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">Teacher</label>
-                      <select value={editSchedForm.teacher_id} onChange={(e) => setEditSchedForm({ ...editSchedForm, teacher_id: e.target.value })}
-                        className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
-                        <option value="">Select Teacher</option>
-                        {teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">Room / Venue</label>
-                      <input value={editSchedForm.room_id} onChange={(e) => setEditSchedForm({ ...editSchedForm, room_id: e.target.value })}
-                        className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">Start Time</label>
-                      <input type="datetime-local" value={editSchedForm.start_time} onChange={(e) => setEditSchedForm({ ...editSchedForm, start_time: e.target.value })}
-                        className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1">End Time</label>
-                      <input type="datetime-local" value={editSchedForm.end_time} onChange={(e) => setEditSchedForm({ ...editSchedForm, end_time: e.target.value })}
-                        className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-                    </div>
-                  </div>
-                  <div className="flex gap-2 pt-1">
-                    <button type="button" onClick={() => setEditSched(null)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm">Cancel</button>
-                    <button type="submit" disabled={saving} className="flex-1 bg-[#002EB8] text-white py-2 rounded-md text-sm">Save Changes</button>
-                  </div>
-                </form>
-              </div>
-            </div>
+            <EditScheduleModal
+              onClose={() => setEditSched(null)}
+              form={editSchedForm}
+              setForm={setEditSchedForm}
+              onSubmit={saveSchedEdit}
+              saving={saving}
+              courses={courses}
+              teachers={teachers}
+            />
           )}
 
           <div className="border border-[#E5E7EB] divide-y divide-[#E5E7EB] rounded-lg overflow-hidden">

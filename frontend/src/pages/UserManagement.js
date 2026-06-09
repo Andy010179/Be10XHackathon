@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Plus, Trash2, X, Users, ShieldCheck, GraduationCap, Briefcase, Pencil, Upload, Download, UserCheck } from "lucide-react";
+import { Plus, Trash2, X, ShieldCheck, GraduationCap, Briefcase, Pencil, Upload, Download, UserCheck } from "lucide-react";
+import { CreateUserModal } from "../components/modals/CreateUserModal";
+import { EditUserModal } from "../components/modals/EditUserModal";
+import { CreateParentModal } from "../components/modals/CreateParentModal";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -344,52 +347,14 @@ export default function UserManagement() {
 
           {/* Create Parent Modal */}
           {showParentForm && (
-            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-xl border border-[#E5E7EB] w-full max-w-md shadow-xl">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
-                  <h3 className="font-cabinet font-bold text-base">Create Parent Account</h3>
-                  <button onClick={() => setShowParentForm(false)} className="text-[#8A8F98] hover:text-[#0A0A0A]"><X size={20} /></button>
-                </div>
-                <form onSubmit={handleCreateParent} className="p-6 space-y-4" data-testid="create-parent-form">
-                  {[
-                    { label: "Parent Name *", field: "parent_name", ph: "Guardian Full Name", req: true },
-                    { label: "Parent Email *", field: "parent_email", ph: "parent@example.com", req: true },
-                    { label: "Phone", field: "parent_phone", ph: "+91 98765 43210", req: false },
-                  ].map(({ label, field, ph, req }) => (
-                    <div key={field}>
-                      <label className="block text-xs font-mono uppercase tracking-widest text-[#8A8F98] mb-1">{label}</label>
-                      <input required={req} value={parentForm[field]}
-                        onChange={(e) => setParentForm((p) => ({ ...p, [field]: e.target.value }))}
-                        placeholder={ph}
-                        className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[#002EB8]" />
-                    </div>
-                  ))}
-                  <div>
-                    <label className="block text-xs font-mono uppercase tracking-widest text-[#8A8F98] mb-1">Link to Student *</label>
-                    <select required value={parentForm.student_id}
-                      onChange={(e) => setParentForm((p) => ({ ...p, student_id: e.target.value }))}
-                      data-testid="parent-student-select"
-                      className="w-full border border-[#E5E7EB] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[#002EB8] bg-white">
-                      <option value="">— Select Student —</option>
-                      {students.map((s) => (
-                        <option key={s.id} value={s.id}>{s.name} ({s.email})</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-xs text-[#002EB8]">
-                    A temporary password will be generated and shown after creation. The parent will receive login details via email.
-                  </div>
-                  <div className="flex gap-3">
-                    <button type="button" onClick={() => setShowParentForm(false)}
-                      className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2.5 rounded-lg text-sm hover:bg-[#F8F9FA]">Cancel</button>
-                    <button type="submit" disabled={parentSaving} data-testid="create-parent-submit"
-                      className="flex-1 bg-purple-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:bg-[#8A8F98]">
-                      {parentSaving ? "Creating..." : "Create Account"}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
+            <CreateParentModal
+              onClose={() => setShowParentForm(false)}
+              parentForm={parentForm}
+              setParentForm={setParentForm}
+              handleCreateParent={handleCreateParent}
+              parentSaving={parentSaving}
+              students={students}
+            />
           )}
         </div>
       )}
@@ -424,181 +389,32 @@ export default function UserManagement() {
 
       {/* Create User Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg border border-[#E5E7EB] w-full max-w-md shadow-xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
-              <div className="flex items-center gap-2">
-                <Users size={18} className="text-[#002EB8]" />
-                <h2 className="font-cabinet font-bold text-lg tracking-tight">Create New Account</h2>
-              </div>
-              <button onClick={() => setShowForm(false)} className="text-[#8A8F98] hover:text-[#0A0A0A]"><X size={20} /></button>
-            </div>
-            <form onSubmit={handleSubmit} data-testid="create-user-form" className="p-6 space-y-4">
-              <div>
-                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-2">Role</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {ROLES.map((role) => {
-                    const RoleIcon = role.icon;
-                    return (
-                      <button key={role.value} type="button"
-                        onClick={() => { setForm({ ...form, role: role.value }); setSelectedStudent(null); setStudentSearch(""); }}
-                        data-testid={`role-option-${role.value}`}
-                        className={`flex flex-col items-center gap-1 py-2.5 px-1 border rounded-md text-xs transition-all ${form.role === role.value ? "border-[#002EB8] bg-blue-50 text-[#002EB8]" : "border-[#E5E7EB] text-[#8A8F98] hover:border-[#002EB8]"}`}>
-                        <RoleIcon size={16} /><span>{role.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              {form.role === "student" ? (
-                <div>
-                  <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Link to Existing Student</label>
-                  <div className="relative">
-                    <input value={studentSearch}
-                      onChange={(e) => { setStudentSearch(e.target.value); setSelectedStudent(null); setShowStudentDropdown(true); }}
-                      onFocus={() => setShowStudentDropdown(true)}
-                      placeholder="Search student by name or email..."
-                      data-testid="student-link-search"
-                      className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-                    {showStudentDropdown && studentSearch.length > 0 && (
-                      <div className="absolute z-20 w-full bg-white border border-[#E5E7EB] rounded-md shadow-lg max-h-48 overflow-y-auto mt-1">
-                        {students.filter((s) =>
-                          s.name?.toLowerCase().includes(studentSearch.toLowerCase()) ||
-                          s.email?.toLowerCase().includes(studentSearch.toLowerCase())
-                        ).slice(0, 10).map((s) => (
-                          <button key={s.id} type="button"
-                            onClick={() => { setSelectedStudent(s); setStudentSearch(s.name); setShowStudentDropdown(false); }}
-                            data-testid={`student-option-${s.id}`}
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-[#F8F9FA] border-b border-[#E5E7EB] last:border-0">
-                            <p className="font-medium text-[#0A0A0A]">{s.name}</p>
-                            <p className="text-xs text-[#8A8F98]">{s.email}</p>
-                          </button>
-                        ))}
-                        {students.filter((s) =>
-                          s.name?.toLowerCase().includes(studentSearch.toLowerCase()) ||
-                          s.email?.toLowerCase().includes(studentSearch.toLowerCase())
-                        ).length === 0 && (
-                          <p className="px-3 py-2 text-xs text-[#8A8F98]">No students found</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {selectedStudent && (
-                    <div className="mt-2 bg-blue-50 border border-blue-200 rounded-md px-3 py-2 text-xs">
-                      <p className="font-medium text-[#002EB8]">{selectedStudent.name}</p>
-                      <p className="text-[#8A8F98]">{selectedStudent.email}</p>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Full Name</label>
-                    <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-                      placeholder="e.g. Rahul Sharma" data-testid="user-name-input"
-                      className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Email Address</label>
-                    <input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
-                      placeholder="user@domain.com" data-testid="user-email-input"
-                      className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-                  </div>
-                </>
-              )}
-              <div>
-                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Password</label>
-                <input required type="password" minLength={6} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  placeholder="Min 6 characters" data-testid="user-password-input"
-                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-              </div>
-              {form.role !== "admin" && (
-                <div>
-                  <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Branch (Optional)</label>
-                  <select value={form.branch_id} onChange={(e) => setForm({ ...form, branch_id: e.target.value })}
-                    className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]">
-                    <option value="">All Branches</option>
-                    {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                  </select>
-                </div>
-              )}
-              <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setShowForm(false)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm hover:bg-[#F8F9FA]">Cancel</button>
-                <button type="submit" disabled={saving} data-testid="create-user-submit"
-                  className="flex-1 bg-[#002EB8] text-white py-2 rounded-md text-sm font-medium hover:bg-[#001A85] disabled:bg-[#8A8F98]">
-                  {saving ? "Creating..." : "Create Account"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <CreateUserModal
+          onClose={() => { setShowForm(false); }}
+          form={form}
+          setForm={setForm}
+          handleSubmit={handleSubmit}
+          saving={saving}
+          branches={branches}
+          students={students}
+          selectedStudent={selectedStudent}
+          setSelectedStudent={setSelectedStudent}
+          studentSearch={studentSearch}
+          setStudentSearch={setStudentSearch}
+          showStudentDropdown={showStudentDropdown}
+          setShowStudentDropdown={setShowStudentDropdown}
+        />
       )}
 
       {/* Edit User Modal */}
       {editUser && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg border border-[#E5E7EB] w-full max-w-md shadow-xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
-              <div className="flex items-center gap-2">
-                <Pencil size={16} className="text-[#002EB8]" />
-                <h2 className="font-cabinet font-bold text-lg tracking-tight">Edit User</h2>
-              </div>
-              <button onClick={() => setEditUser(null)} className="text-[#8A8F98] hover:text-[#0A0A0A]"><X size={20} /></button>
-            </div>
-            <form onSubmit={handleEditSave} data-testid="edit-user-form" className="p-6 space-y-4">
-              <div>
-                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Full Name</label>
-                <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                  data-testid="edit-user-name"
-                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-              </div>
-              <div>
-                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Email Address</label>
-                <input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                  data-testid="edit-user-email"
-                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-              </div>
-              <div>
-                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-2">Role</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {ROLES.map((role) => {
-                    const RoleIcon = role.icon;
-                    return (
-                      <button key={role.value} type="button" onClick={() => setEditForm({ ...editForm, role: role.value })}
-                        className={`flex flex-col items-center gap-1 py-2.5 px-1 border rounded-md text-xs transition-all ${editForm.role === role.value ? "border-[#002EB8] bg-blue-50 text-[#002EB8]" : "border-[#E5E7EB] text-[#8A8F98] hover:border-[#002EB8]"}`}>
-                        <RoleIcon size={16} /><span>{role.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Joining Date</label>
-                <input type="date" value={editForm.joining_date} onChange={(e) => setEditForm({ ...editForm, joining_date: e.target.value })}
-                  data-testid="edit-user-joining-date"
-                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-              </div>
-              <div>
-                <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Reset Password <span className="normal-case text-[#8A8F98]">(leave blank to keep current)</span></label>
-                <input type="password" minLength={6} value={editForm.new_password || ""}
-                  onChange={(e) => setEditForm({ ...editForm, new_password: e.target.value })}
-                  placeholder="New password (min 6 characters)"
-                  data-testid="edit-user-new-password"
-                  className="w-full border border-[#E5E7EB] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#002EB8]" />
-                {editForm.new_password?.length > 0 && editForm.new_password.length < 6 && (
-                  <p className="text-xs text-[#FF2B2B] mt-1">Password must be at least 6 characters</p>
-                )}
-              </div>
-              <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setEditUser(null)} className="flex-1 border border-[#E5E7EB] text-[#8A8F98] py-2 rounded-md text-sm hover:bg-[#F8F9FA]">Cancel</button>
-                <button type="submit" disabled={editSaving} data-testid="edit-user-submit"
-                  className="flex-1 bg-[#002EB8] text-white py-2 rounded-md text-sm font-medium hover:bg-[#001A85] disabled:bg-[#8A8F98]">
-                  {editSaving ? "Saving..." : "Save Changes"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <EditUserModal
+          onClose={() => setEditUser(null)}
+          editForm={editForm}
+          setEditForm={setEditForm}
+          handleEditSave={handleEditSave}
+          editSaving={editSaving}
+        />
       )}
 
       {/* Users Table */}
