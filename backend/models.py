@@ -219,6 +219,10 @@ class TwilioSettings(BaseModel):
     phone_number: str
 
 
+class WhatsAppWebhookSettings(BaseModel):
+    webhook_url: str  # custom override URL; empty string clears it (reverts to auto-detect)
+
+
 class FeeQueryComment(BaseModel):
     admin_comment: str
 

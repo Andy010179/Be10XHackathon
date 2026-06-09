@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { CreditCard, Webhook, Eye, EyeOff, CheckCircle, Copy, ExternalLink, Info, Key, Database, Download, Upload, Trash2, AlertTriangle, X, MessageSquare, Phone } from "lucide-react";
+import { CreditCard, Webhook, Eye, EyeOff, CheckCircle, Copy, ExternalLink, Info, Key, Database, Download, Upload, Trash2, AlertTriangle, X, MessageSquare, Phone, Pencil, RotateCcw } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -20,7 +20,10 @@ export default function Settings() {
   const [showTwilioToken, setShowTwilioToken] = useState(false);
   const [savingTwilio, setSavingTwilio] = useState(false);
 
-  const [webhookInfo, setWebhookInfo] = useState({ webhook_url: "", verify_token: "" });
+  const [webhookInfo, setWebhookInfo] = useState({ webhook_url: "", verify_token: "", source: "auto", has_custom_url: false });
+  const [editingWebhook, setEditingWebhook] = useState(false);
+  const [webhookUrlInput, setWebhookUrlInput] = useState("");
+  const [savingWebhook, setSavingWebhook] = useState(false);
 
   // Admin data management state
   const [backupLoading, setBackupLoading] = useState(false);
@@ -92,6 +95,43 @@ export default function Settings() {
       setSavingTwilio(false);
     }
   };
+
+  const handleSaveWebhookUrl = async () => {
+    setSavingWebhook(true);
+    try {
+      const res = await axios.put(`${API}/api/settings/whatsapp-webhook`, { webhook_url: webhookUrlInput }, { withCredentials: true });
+      toast.success(res.data.message);
+      setWebhookInfo((prev) => ({
+        ...prev,
+        webhook_url: webhookUrlInput || prev.webhook_url,
+        source: res.data.source,
+        has_custom_url: !!webhookUrlInput,
+      }));
+      setEditingWebhook(false);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to save webhook URL");
+    } finally {
+      setSavingWebhook(false);
+    }
+  };
+
+  const handleResetWebhookUrl = async () => {
+    setSavingWebhook(true);
+    try {
+      const res = await axios.put(`${API}/api/settings/whatsapp-webhook`, { webhook_url: "" }, { withCredentials: true });
+      toast.success(res.data.message);
+      // Re-fetch to get the newly auto-detected URL
+      const wh = await axios.get(`${API}/api/settings/whatsapp-webhook`, { withCredentials: true });
+      setWebhookInfo(wh.data);
+      setWebhookUrlInput("");
+      setEditingWebhook(false);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to reset webhook URL");
+    } finally {
+      setSavingWebhook(false);
+    }
+  };
+
 
   const handleDownloadBackup = async () => {
     setBackupLoading(true);
@@ -346,33 +386,94 @@ export default function Settings() {
           <div className="w-9 h-9 bg-[#25D366]/10 rounded-md flex items-center justify-center">
             <Webhook size={18} className="text-[#25D366]" />
           </div>
-          <div>
+          <div className="flex-1">
             <h2 className="font-cabinet font-bold text-base text-[#0A0A0A]">WhatsApp CRM Webhook</h2>
             <p className="text-xs text-[#8A8F98]">Auto-capture leads from WhatsApp messages</p>
           </div>
+          {webhookInfo.has_custom_url ? (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-full">
+              <Pencil size={11} /> Custom URL
+            </span>
+          ) : (
+            <span className="text-xs font-medium text-[#002EB8] bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full">
+              Auto-detected
+            </span>
+          )}
         </div>
         <div className="p-6 space-y-4" data-testid="whatsapp-webhook-section">
           <div className="p-3 bg-blue-50 border border-blue-200 rounded-md text-xs text-[#002EB8] flex items-start gap-2">
             <Info size={14} className="mt-0.5 shrink-0" />
-            <span>Incoming WhatsApp messages are automatically converted into CRM leads in the Pipeline.</span>
+            <span>Incoming WhatsApp messages are automatically converted into CRM leads in the Pipeline. The webhook URL is auto-detected from your domain; set a custom URL if needed (e.g. for production).</span>
           </div>
 
           <div>
-            <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98] block mb-1.5">Webhook URL</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                readOnly
-                value={webhookInfo.webhook_url}
-                data-testid="webhook-url-input"
-                className="flex-1 border border-[#E5E7EB] rounded-md px-3 py-2.5 text-sm bg-[#F8F9FA] font-mono text-[#0A0A0A]"
-              />
-              <button onClick={() => copyToClipboard(webhookInfo.webhook_url)}
-                data-testid="copy-webhook-url"
-                className="px-3 py-2.5 border border-[#E5E7EB] rounded-md text-[#8A8F98] hover:text-[#002EB8] hover:border-[#002EB8] transition-colors">
-                <Copy size={15} />
-              </button>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-mono uppercase tracking-[0.15em] text-[#8A8F98]">Webhook URL</label>
+              {!editingWebhook ? (
+                <button
+                  onClick={() => { setEditingWebhook(true); setWebhookUrlInput(webhookInfo.webhook_url); }}
+                  data-testid="edit-webhook-url-btn"
+                  className="flex items-center gap-1 text-xs text-[#002EB8] hover:underline">
+                  <Pencil size={11} /> Edit
+                </button>
+              ) : (
+                <button
+                  onClick={() => { setEditingWebhook(false); setWebhookUrlInput(""); }}
+                  className="text-xs text-[#8A8F98] hover:text-[#0A0A0A]">
+                  Cancel
+                </button>
+              )}
             </div>
+
+            {!editingWebhook ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={webhookInfo.webhook_url}
+                  data-testid="webhook-url-input"
+                  className="flex-1 border border-[#E5E7EB] rounded-md px-3 py-2.5 text-sm bg-[#F8F9FA] font-mono text-[#0A0A0A]"
+                />
+                <button onClick={() => copyToClipboard(webhookInfo.webhook_url)}
+                  data-testid="copy-webhook-url"
+                  className="px-3 py-2.5 border border-[#E5E7EB] rounded-md text-[#8A8F98] hover:text-[#002EB8] hover:border-[#002EB8] transition-colors"
+                  title="Copy URL">
+                  <Copy size={15} />
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <input
+                  type="url"
+                  value={webhookUrlInput}
+                  onChange={(e) => setWebhookUrlInput(e.target.value)}
+                  placeholder="https://your-domain.com/api/webhooks/whatsapp"
+                  data-testid="webhook-url-edit-input"
+                  className="w-full border border-[#002EB8] rounded-md px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-[#002EB8]"
+                />
+                <p className="text-xs text-[#8A8F98]">
+                  Set a custom URL to override auto-detection (e.g. use your production domain). Leave blank to revert to auto-detect.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSaveWebhookUrl}
+                    disabled={savingWebhook}
+                    data-testid="save-webhook-url-btn"
+                    className="flex items-center gap-2 px-4 py-2 bg-[#002EB8] text-white text-sm rounded-md hover:bg-[#001A85] disabled:bg-[#8A8F98] font-medium transition-colors">
+                    {savingWebhook ? "Saving..." : <><CheckCircle size={13} /> Save URL</>}
+                  </button>
+                  {webhookInfo.has_custom_url && (
+                    <button
+                      onClick={handleResetWebhookUrl}
+                      disabled={savingWebhook}
+                      data-testid="reset-webhook-url-btn"
+                      className="flex items-center gap-2 px-4 py-2 border border-[#E5E7EB] text-[#8A8F98] text-sm rounded-md hover:border-[#002EB8] hover:text-[#002EB8] disabled:opacity-50 transition-colors">
+                      <RotateCcw size={13} /> Reset to Auto-detect
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div>

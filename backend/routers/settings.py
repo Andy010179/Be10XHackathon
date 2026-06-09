@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from database import db
 from helpers import RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, FRONTEND_URL
 from dependencies import get_current_user, require_admin
-from models import RazorpaySettings, TwilioSettings
+from models import RazorpaySettings, TwilioSettings, WhatsAppWebhookSettings
 import base64
 
 settings_router = APIRouter(prefix="/settings", tags=["settings"])
@@ -92,12 +92,44 @@ async def upload_logo(file: UploadFile = File(...), user: dict = Depends(require
 @settings_router.get("/whatsapp-webhook")
 async def get_whatsapp_info(request: Request, user: dict = Depends(require_admin)):
     from helpers import WHATSAPP_VERIFY_TOKEN
-    # Derive the public base URL from the incoming request host so it works
-    # correctly in both preview and production deployments.
-    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
-    forwarded_proto = request.headers.get("x-forwarded-proto", "https")
-    if forwarded_host:
-        public_url = f"{forwarded_proto}://{forwarded_host}"
+    # Check if a custom webhook URL has been saved in DB
+    db_settings = await db.app_settings.find_one({"key": "whatsapp_webhook"})
+    custom_url = db_settings.get("webhook_url", "") if db_settings else ""
+
+    if custom_url:
+        webhook_url = custom_url
+        source = "custom"
     else:
-        public_url = FRONTEND_URL or str(request.base_url).rstrip("/")
-    return {"webhook_url": f"{public_url}/api/webhooks/whatsapp", "verify_token": WHATSAPP_VERIFY_TOKEN}
+        # Derive the public base URL from the incoming request host so it works
+        # correctly in both preview and production deployments.
+        forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+        forwarded_proto = request.headers.get("x-forwarded-proto", "https")
+        if forwarded_host:
+            public_url = f"{forwarded_proto}://{forwarded_host}"
+        else:
+            public_url = FRONTEND_URL or str(request.base_url).rstrip("/")
+        webhook_url = f"{public_url}/api/webhooks/whatsapp"
+        source = "auto"
+
+    return {
+        "webhook_url": webhook_url,
+        "verify_token": WHATSAPP_VERIFY_TOKEN,
+        "source": source,
+        "has_custom_url": bool(custom_url),
+    }
+
+
+@settings_router.put("/whatsapp-webhook")
+async def save_whatsapp_webhook(data: WhatsAppWebhookSettings, user: dict = Depends(require_admin)):
+    url = data.webhook_url.strip()
+    if url:
+        await db.app_settings.update_one(
+            {"key": "whatsapp_webhook"},
+            {"$set": {"key": "whatsapp_webhook", "webhook_url": url, "updated_at": datetime.now(timezone.utc)}},
+            upsert=True
+        )
+        return {"message": "Custom webhook URL saved successfully", "source": "custom"}
+    else:
+        # Empty string = clear custom URL, revert to auto-detect
+        await db.app_settings.delete_one({"key": "whatsapp_webhook"})
+        return {"message": "Webhook URL reset to auto-detect", "source": "auto"}
