@@ -92,5 +92,12 @@ async def upload_logo(file: UploadFile = File(...), user: dict = Depends(require
 @settings_router.get("/whatsapp-webhook")
 async def get_whatsapp_info(request: Request, user: dict = Depends(require_admin)):
     from helpers import WHATSAPP_VERIFY_TOKEN
-    backend_url = FRONTEND_URL or str(request.base_url).rstrip("/")
-    return {"webhook_url": f"{backend_url}/api/webhooks/whatsapp", "verify_token": WHATSAPP_VERIFY_TOKEN}
+    # Derive the public base URL from the incoming request host so it works
+    # correctly in both preview and production deployments.
+    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    forwarded_proto = request.headers.get("x-forwarded-proto", "https")
+    if forwarded_host:
+        public_url = f"{forwarded_proto}://{forwarded_host}"
+    else:
+        public_url = FRONTEND_URL or str(request.base_url).rstrip("/")
+    return {"webhook_url": f"{public_url}/api/webhooks/whatsapp", "verify_token": WHATSAPP_VERIFY_TOKEN}
